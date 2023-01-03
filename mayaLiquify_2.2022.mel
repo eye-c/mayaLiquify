@@ -1,0 +1,3137 @@
+//copyright 2007 Daniel Arzabe
+//
+//For suggestions: darzabe@gmail.com
+//
+//proc string[] daGetValidCameras() //returns cameraShapes that have their project image set
+//
+//proc daCreateLiquifyPlane(string $ui_CameraShape)
+//
+//proc string[] daLiquifySurface() - returns the name of the surface shader as well as the file node attached to it
+//
+//proc string[] daListCamConnections(string $currentCamShape)
+		//returns:   	//[0] - camImagePlane	[1] - liquifyPlane
+				//[2] - liquifyPlaneShape	[3] - shadingEngine
+				//[4] - surfaceShader	[5] - projectionNode
+				//[6] - fileNode		[7] - targetObject
+//proc string replaceSourceImage(string $currentCamShape)	//this proc returns the new source image and places the value 
+									//in the appropriate camShape attr
+//proc daResetResolutionDisplay( string $textControlName, string $cameraShape)//
+//
+//proc daSetGlobalTargetObject()
+//
+//proc daLoadTargetObject(string $cameraShape)
+//
+//proc daVisibilityToggle(string $symbolButtonName, string $cameraShape)
+//
+//proc string daConfirmMessage(string $title, string $message)
+//
+//proc string[] daWhichCam()
+//
+//proc daLookThroughCamera(string $currentCamera)
+//
+//proc int daWireframeOnShaded()
+//
+//proc refreshLiquifyUI()
+//
+//proc string[] daMaterialsAttrEditor(string $cameraShape, string $attr, int $io)
+	//   3rd argument 	0 = returnValues only
+	//			1 = graphMaterials
+	//returns the shading engine name and the surface shader name
+//proc daTearOffHypershade()
+//
+//proc int daDoesFileExist(string $fileName, string $folder) 
+	////return - bool - determines whether or not a file exists in the images folder
+//global proc daResetCameraImagePlane()
+//
+//proc string daSaveRenderedImage(string $fileName)////returns the path name of image saved.  Saves image in images folder
+//
+//proc daRenderCurrentCamera(string $currentCamShape)
+//
+//proc string daLiquifySourceImage(string $cameraShape, string $textFieldName)
+//
+//proc daClearLiquifyPlane(string $cameraShape)
+//
+//proc daSetLiquifyPlaneTransparency(string $currentCamShape, string $transparencySlider)
+
+
+
+
+
+
+
+
+
+
+global float $daMayaLiquifyScrollValue;
+global string $daTargetObject;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc string[] daGetValidCameras()
+{
+	int $numOfProjCams = 0;
+	string $tempCameraShapes[] = `ls -type camera`;
+	string $cameraShapes[];
+	string $currentCamShape;
+
+	int $i = 0;
+	for($currentCamShape in $tempCameraShapes)
+	{
+		if (`attributeExists "projectImage" $currentCamShape`)
+		{
+      			int $io = `getAttr ($currentCamShape + ".projectImage")`;
+			print( $currentCamShape + " " + $io + " " + $i + "\n");
+			if($io)
+			{
+				$cameraShapes[$i] = $currentCamShape;
+				$i++;
+			} 
+		}
+	}
+
+
+	return $cameraShapes;
+}
+
+
+
+
+
+
+
+
+
+//this proc simply updates the Maya UI sp that some internal UI procs are initialized
+proc daPrepScene()
+{
+	unifiedRenderGlobalsWindow;
+	setAttr "defaultResolution.pixelAspect" 1;
+}
+
+
+
+
+
+proc daPrepCamera(string $cameraShape)
+{	
+
+	//unifiedRenderGlobalsWindow;
+	setAttr "defaultResolution.pixelAspect" 1;
+
+	string $whichCam[]; 
+	$whichCam = daWhichCam();
+
+	setAttr ($whichCam[1] + ".locatorScale") 0.1;
+
+	string $imagePlanes[] = `listConnections -type imagePlane $whichCam[1]`;
+
+	
+
+	if (size($imagePlanes) == 0)
+	{
+		daConfirmMessage("Error", "Camera does not have an imagePlane.", 1 );
+		error ("Camera does not have an imagePlane.");
+	}
+
+	select -r $imagePlanes[0];
+	ShowAttributeEditorOrChannelBox;
+	ShowAttributeEditorOrChannelBox;
+
+	
+	setAttr ($imagePlanes[0] + ".displayOnlyIfCurrent") on;
+
+	AEupdateNode($imagePlanes[0], "");
+	
+
+	int $coverageX = `getAttr ($imagePlanes[0] + ".coverageX")`;
+	int $coverageY = `getAttr ($imagePlanes[0] + ".coverageY")`;
+	//sets the res on the render globals
+	setAttr defaultResolution.width $coverageX;
+	setAttr defaultResolution.height $coverageY;
+
+	updateMayaSoftwarePixelAspectRatio;
+	setAttr "defaultResolution.pixelAspect" 1;
+
+	//fit to resolution gate
+	//setAttr ($imagePlanes[0] + ".fit") 1;//fit - best
+	setAttr ($imagePlanes[0] + ".fit") 4;//to size
+	AEinvokeFitRezGate ($imagePlanes[0] + ".sizeX") ($imagePlanes[0] + ".sizeY");
+
+	AEupdateNode($imagePlanes[0], "");
+
+	camera -e -displayFilmGate off -displayResolution on -overscan 1.3 $whichCam[0];
+	daResetCameraImagePlane();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc daCreateLiquifyPlane(string $ui_CameraShape)
+{
+	print("_______________INSIDE daCreateLiquifyPlane PROC______________\n");
+	global string $daTargetObject;
+	print("global target object = " + $daTargetObject + "\n");
+	
+	
+	if ($daTargetObject == "")
+	{
+		daSetGlobalTargetObject();
+		print("inside daCreateLiquifyPlane proc - $daTargetObject = " + $daTargetObject + "\n");
+	}
+
+	string $whichCam[]; 
+	$whichCam = daWhichCam();
+	print ("camera = " + $whichCam[0] + "\n");
+
+		
+
+	string $imagePlanes[] = `listConnections -type imagePlane $whichCam[1]`;
+	print ("imagePlane = " + $imagePlanes[0] + "\n");
+
+	
+
+	daPrepCamera($whichCam[1]);
+	AEinvokeFitRezGate ($imagePlanes[0] + ".sizeX") ($imagePlanes[0] + ".sizeY");
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	
+
+
+
+	//the fileTextureName in imagePlane node
+	string $imageName = `getAttr ($imagePlanes[0] + ".imageName")`;
+	print ("$imageName = " + $imageName + "\n");
+
+
+	//will contain the name of the liquifyplane
+	string $liquifyPlane[];
+
+
+	int $resetTransformations = 1;
+
+	float $tx = 0;	float $ty = 0;	float $tz = 0;
+	float $rx = 0;	float $ry = 0;	float $rz = 0;
+	float $sx = 1;	float $sy = 1;	float $sz = 1;
+
+	//if this block of  code runs it means that the user is
+	//creating a second plane which will delete the previous.  It will also delete the previous texture reference plane
+	//it starts by checking if the cameraShape has been intitialized
+	//with the custom attributes.
+
+
+	if(`attributeExists "projectImage" $whichCam[1]`)
+	{
+
+		print ("projectImage attr exists\n");
+		//print ($whichCam[0] + "\n");
+		string $temp = "";
+		$temp = `getAttr ($whichCam[1] + ".liquifyPlane")`;
+		print("The liquifyPlane name:  " + $temp + "\n");
+
+		if( `objExists $temp` )
+		{ 
+			print("The previous liquifyPlane exists:  " + $temp + "\n");
+
+			string $result = daConfirmMessage("Warning", "Would you like to replace the current liquify plane?", 1 );
+			if($result == "OK")
+			{
+				string $world[] = `listRelatives -p $temp`;
+				if (`size($world)`)
+				{
+					parent -w $temp;
+				}
+
+				//get the old transformation values from previous liquify plane
+				$tx  =  `getAttr ($temp + ".translateX")`;
+				$ty  =  `getAttr ($temp + ".translateY")`;
+				$tz  =  `getAttr ($temp + ".translateZ")`;
+
+				$rx  =  `getAttr ($temp + ".rotateX")`;
+				$ry  =  `getAttr ($temp + ".rotateY")`;
+				$rz  =  `getAttr ($temp + ".rotateZ")`;
+
+				$sx  =  `getAttr ($temp + ".scaleX")`;
+				$sy  =  `getAttr ($temp + ".scaleY")`;
+				$sz  =  `getAttr ($temp + ".scaleZ")`;
+
+				$resetTransformations = 0;
+
+				delete $temp;
+				if( `objExists ($whichCam[0] + "_Liquify_Plane_reference")` )
+				{
+					delete ($whichCam[0] + "_Liquify_Plane_reference");
+				}
+			}
+			else if ($result == "Cancel")
+			{
+				error ("Operation cancelled.");
+			}
+		}
+
+	
+		$liquifyPlane = `nurbsPlane -ch on -o on -po 0 -ax 0 0 1 -u 6 -v 6 -n ($whichCam[0] + "_Liquify_Plane")`;
+			addAttr -ln "projectionMapped"  -at bool  -min 0 -max 1 $liquifyPlane;
+			setAttr -e -channelBox true ($liquifyPlane[0] + ".projectionMapped");
+		addAttr -ln "worldRotPivot"  -at double3  $liquifyPlane;
+		addAttr -ln "worldRotPivotX"  -at double -p worldRotPivot  $liquifyPlane;
+		addAttr -ln "worldRotPivotY"  -at double -p worldRotPivot  $liquifyPlane;
+		addAttr -ln "worldRotPivotZ"  -at double -p worldRotPivot  $liquifyPlane;
+		print("worldRotatePivot custom attr created\n");
+
+		//get the plane's shape in order to set its display to wireframe
+		string $planeShape[] = `listRelatives -s $liquifyPlane`;
+
+		setAttr ($planeShape[0] + ".overrideEnabled") 1;
+		setAttr ($planeShape[0] + ".overrideShading") 0;
+
+
+
+
+
+		setAttr ($liquifyPlane[0] + ".translateX") $tx; 
+		setAttr ($liquifyPlane[0] + ".translateY") $ty; 
+		setAttr ($liquifyPlane[0] + ".translateZ") $tz;
+
+		setAttr ($liquifyPlane[0] + ".rotateX") $rx; 
+		setAttr ($liquifyPlane[0] + ".rotateY") $ry; 
+		setAttr ($liquifyPlane[0] + ".rotateZ") $rz;
+
+		setAttr ($liquifyPlane[0] + ".scaleX") $sx; 
+		setAttr ($liquifyPlane[0] + ".scaleY") $sy; 
+		setAttr ($liquifyPlane[0] + ".scaleZ") $sz;
+ 
+
+		setAttr ($whichCam[1] + ".liquifyPlane") -type "string" $liquifyPlane[0];
+
+		setAttr ($whichCam[1] + ".projectImage") true;
+
+		setAttr -type "string" ($whichCam[1] + ".targetObject") $daTargetObject;
+	}
+	else
+	{
+		$liquifyPlane = `nurbsPlane -ch on -o on -po 0 -ax 0 0 1 -u 6 -v 6 -n ($whichCam[0] + "_Liquify_Plane")`;
+			addAttr -ln "projectionMapped"  -at bool  -min 0 -max 1 $liquifyPlane;
+			setAttr -e -channelBox true ($liquifyPlane[0] + ".projectionMapped");
+
+		addAttr -ln "worldRotPivot"  -at double3  $liquifyPlane;
+		addAttr -ln "worldRotPivotX"  -at double -p worldRotPivot  $liquifyPlane;
+		addAttr -ln "worldRotPivotY"  -at double -p worldRotPivot  $liquifyPlane;
+		addAttr -ln "worldRotPivotZ"  -at double -p worldRotPivot  $liquifyPlane;
+		print("worldRotatePivot custom attr created\n");
+
+		//get the plane's shape in order to set its display to wireframe
+		string $planeShape[] = `listRelatives -s $liquifyPlane`;
+
+		setAttr ($planeShape[0] + ".overrideEnabled") 1;
+		setAttr ($planeShape[0] + ".overrideShading") 0;
+
+		
+
+
+
+
+
+		
+ 
+		addAttr -ln "projectImage"  -at bool -dv true $whichCam[1];
+		setAttr -e-channelBox true ( $whichCam[1] + ".projectImage");
+
+		addAttr -ln "liquifyPlane"  -dt "string"   $whichCam[1];
+		setAttr -e -keyable false ( $whichCam[1] + ".liquifyPlane");
+		setAttr ( $whichCam[1] + ".liquifyPlane") -type "string" $liquifyPlane[0];
+
+
+		addAttr -ln "sourceImage" -sn "si" -dt "string"  $whichCam[1];
+		setAttr -e-channelBox true ( $whichCam[1] + ".sourceImage");
+		//set the imageName attr to the image name attr in imagePlane
+		setAttr ( $whichCam[1] + ".sourceImage") -type "string" $imageName;
+		//now connect the value back from the cameraShape to the imagePlane
+		//if the new source image is loaded via the liquifyUI, the value will be applied to the cameraShape
+		//and so update in the imagePlane
+		connectAttr -f ( $whichCam[1] + ".sourceImage") ($imagePlanes[0] + ".imageName");
+
+
+		addAttr -ln "liquifiedImage" -sn "li" -dt "string"  $whichCam[1];
+		setAttr -e-keyable false ( $whichCam[1] + ".liquifiedImage");
+		//setAttr -type "string" ( $whichCam[1] + ".liquifiedImage") ( $whichCam[0] + "_liquified");
+		print("This is the liquifiedImage value = "); print (`getAttr ($whichCam[1] + ".liquifiedImage")`);
+
+		//addAttr -ln "bakedLiquifiedImage" -sn "bli" -dt "string"  $whichCam[1];
+		//setAttr -e-keyable false ( $whichCam[1] + ".bakedLiquifiedImage");
+		//setAttr -type "string" ( $whichCam[1] + ".liquifiedImage") ( $whichCam[0] + "_liquified");
+
+		addAttr -ln "bakedMaskImage" -sn "bmi" -dt "string"  $whichCam[1];
+		setAttr -e-keyable false ( $whichCam[1] + ".bakedMaskImage");
+		//setAttr -type "string" ( $whichCam[1] + ".liquifiedImage") ( $whichCam[0] + "_liquified");
+
+
+		addAttr -ln "projectionCameraShape"  -dt "string"  $whichCam[1];
+		setAttr -e-keyable false ( $whichCam[1] + ".projectionCameraShape");
+		setAttr ($whichCam[1] + ".projectionCameraShape") -type "string" $whichCam[1];
+		setAttr -lock true ($whichCam[1] + ".projectionCameraShape");
+
+		addAttr -ln "projectionImagePlane"  -dt "string"  $whichCam[1];
+		setAttr -e-keyable false ( $whichCam[1] + ".projectionImagePlane");
+		setAttr ($whichCam[1] + ".projectionImagePlane") -type "string" $imagePlanes[0];
+		setAttr -lock true ($whichCam[1] + ".projectionImagePlane");
+
+		addAttr -ln "includeLiquified"  -at bool  $whichCam[1];
+		setAttr -e-channelBox true ( $whichCam[1] + ".includeLiquified");
+		setAttr ( $whichCam[1] + ".includeLiquified") true;
+
+		addAttr -ln "targetObject"  -dt "string"  $whichCam[1];
+		setAttr -e-keyable true ($whichCam[1] + ".targetObject");
+		if($daTargetObject != "")
+		{
+			setAttr -type "string" ($whichCam[1] + ".targetObject") $daTargetObject;
+		}
+
+		addAttr -longName imageSizeX -min 16 -attributeType long $whichCam[1];
+		addAttr -longName imageSizeY -min 16 -attributeType long $whichCam[1];
+		connectAttr -f ($imagePlanes[0] + ".coverageX") ($whichCam[1] + ".imageSizeX");
+		connectAttr -f ($imagePlanes[0] + ".coverageY") ($whichCam[1] + ".imageSizeY");
+
+		addAttr -longName panelColor -attributeType double3 $whichCam[1];
+    			addAttr -longName colorR -attributeType double -parent panelColor $whichCam[1];
+    			addAttr -longName colorG -attributeType double -parent panelColor $whichCam[1];
+    			addAttr -longName colorB -attributeType double -parent panelColor $whichCam[1];
+
+		vector $randVec;
+		$randVec = << rand(.4, .8), rand(.2, .8), rand(.3, .8) >>;
+
+		setAttr ($whichCam[1] + ".panelColor") ($randVec.x) ($randVec.y) ($randVec.z);
+
+
+		addAttr -ln "liqProjSS" -dt "string"  $whichCam[1];
+		setAttr -e-keyable false ( $whichCam[1] + ".liqProjSS");
+
+		addAttr -ln "bakedLiquifiedSS" -dt "string"  $whichCam[1];
+		setAttr -e-keyable false ( $whichCam[1] + ".bakedLiquifiedSS");
+
+		addAttr -ln "bakedLiquifiedSource"  -dt "string"  $whichCam[1];
+		setAttr -e-keyable false ($whichCam[1] + ".bakedLiquifiedSource");
+
+		addAttr -ln "maskProjSS" -dt "string"  $whichCam[1];
+		setAttr -e-keyable false ( $whichCam[1] + ".maskProjSS");
+
+		addAttr -ln "bakedMaskProjSS" -dt "string"  $whichCam[1];
+		setAttr -e-keyable false ( $whichCam[1] + ".bakedMaskProjSS");
+
+		addAttr -ln "fresnel" -dt "string"  $whichCam[1];
+		setAttr -e-keyable false ( $whichCam[1] + ".fresnel");
+
+
+	}
+
+
+	//parent plane under camera to
+	//orient the plane towards the camera
+	//print ($liquifyPlane[0] + "\n");
+	parent $liquifyPlane[0] $whichCam[0]; 
+
+
+
+	if ($resetTransformations)
+	{
+		setAttr ($liquifyPlane[0] + ".translateX") 0;
+		setAttr ($liquifyPlane[0] + ".translateY") 0;
+		setAttr ($liquifyPlane[0] + ".rotateX") 0;
+		setAttr ($liquifyPlane[0] + ".rotateY") 0;
+		setAttr ($liquifyPlane[0] + ".rotateZ") 0;
+
+		vector $bBoxSize = `getAttr ($daTargetObject + ".boundingBox.boundingBoxSize")`;
+		print ("BBox size = " + $bBoxSize + " \n");
+
+		float $ZXPlane = (  sqrt(($bBoxSize.x * $bBoxSize.x) + ($bBoxSize.y * $bBoxSize.y) )  ) ;
+		print ("ZXPlane = " + $ZXPlane + "\n");
+	
+		float $tz = `getAttr ($liquifyPlane[0] + ".translateZ")`;
+		print ("Plane tz = " + $tz + "\n");
+
+		$ZXPlane = $tz + $ZXPlane;
+		print ("tz + ZXPlane = " + $ZXPlane + "\n");
+
+		setAttr ($liquifyPlane[0] + ".translateZ") $ZXPlane;
+	
+
+
+		//this is the identity rotation pivot.  we get these values before the user
+		//futz with the plane.  If the imagePlane is rotated we have to rotate
+		// the liquified plane after it is texture referenced so that the projection
+		//registers with the imagePlane.  To do this, the liquifyPlane has to rotate in Z camera space
+		//with the imagePlanes center as the fulcrum.  By capturing this world pivot value
+		//we can apply it to the liquifyPlane after it is has been futzed and texture referenced and then
+		//we rotate by the same amount as the imagePlane
+		vector $worldRotPivot = `xform -q -ws -rp  $liquifyPlane[0]`;
+		setAttr ($liquifyPlane[0] + ".worldRotPivot") ($worldRotPivot.x) ($worldRotPivot.y) ($worldRotPivot.z);	
+
+	}
+
+	refreshLiquifyUI();
+	select -r $liquifyPlane[0];
+	setDisplaySmoothness 1;
+
+	
+	
+	print("\n_____________________OUT PROC______________________\n");
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//creates the surface shader and returns the name of the surface
+//shader as well as the file node attached to it
+
+proc string[] daLiquifySurface()
+{
+	//refreshLiquifyUI();
+
+	print("_______________________________________\nInside daLiquifySurface Proc\n");
+
+	string $whichCam[]; 
+	$whichCam = daWhichCam();
+
+	daPrepCamera($whichCam[1]);
+
+	//determine the plane to liquify by getting its name from cameraShape info attrs
+	string $liquifyPlane = `getAttr ($whichCam[1] + ".liquifyPlane")`;
+	string $liquifyPlaneShape[] = `ls -dag -shapes -ap $liquifyPlane`;//planeShape
+
+	
+	//lock camera attrs when we create a plane
+	setAttr -lock true ($whichCam[0] + ".tx");
+	setAttr -lock true ($whichCam[0] + ".ty");
+	setAttr -lock true ($whichCam[0] + ".tz");
+	setAttr -lock true ($whichCam[0] + ".rx");
+	setAttr -lock true ($whichCam[0] + ".ry");
+	setAttr -lock true ($whichCam[0] + ".rz");
+	setAttr -lock true ($whichCam[0] + ".sx");
+	setAttr -lock true ($whichCam[0] + ".sy");
+	setAttr -lock true ($whichCam[0] + ".sz");
+
+
+	//set its display to shaded and best quality
+	setAttr ($liquifyPlaneShape[0] + ".overrideShading") 1;
+	setAttr ($liquifyPlaneShape[0] + ".overrideEnabled") 0;
+	setDisplaySmoothness 3;
+
+
+
+
+
+	//create the Surface shader and apply it to plane with image with projection
+	//add custom string attribute with cameraShape name
+	//connect the cameraShape's message attr to the surfaceShader's linkedCamera attr
+	string $surfaceShader = `shadingNode -asShader surfaceShader -n ($whichCam[0] + "_liquifySurfaceShader")`;
+		addAttr -ln "linkedCamera"  -dt "string"  $surfaceShader;
+		setAttr -e-keyable false ( $surfaceShader + ".linkedCamera");
+		setAttr -type "string" ( $surfaceShader + ".linkedCamera") $whichCam[0];
+		connectAttr -f ($whichCam[0] + ".message")  ( $surfaceShader + ".linkedCamera");
+
+	setAttr ($surfaceShader + ".outTransparency") -type double3 0.18 0.18 0.18 ;
+
+	
+	string $surfaceShaderSG = `sets -renderable true -noSurfaceShader true -empty -name ($surfaceShader + "SG")`;
+	
+	connectAttr -f ($surfaceShader + ".outColor") ($surfaceShaderSG + ".surfaceShader");
+
+
+
+
+
+	//create the file,  projection, place2dTexture and place3dtexture nodes and connect them
+	//to the color attr of surface shader
+ 
+	string $projNode = `shadingNode -asTexture projection -n ($whichCam[0] + "_liquifyProjectionNode")`;
+	
+	string $fileNode = `shadingNode -asTexture file -n ($whichCam[0] + "_liquifyFile")`;
+	connectAttr -f ($whichCam[1] + ".sourceImage") ($fileNode + ".fileTextureName");
+		//string $tempSourceImageName = `getAttr ($whichCam[1] + ".sourceImage")`;
+		//setAttr -type "string" ($fileNode + ".fileTextureName")  $tempSourceImageName;
+
+	
+	string $place3dNode = `shadingNode -asUtility place3dTexture -n ($whichCam[0] + "_place3dTexture")`;
+	
+
+	connectAttr ($place3dNode + ".wim[0]") ($projNode + ".pm");
+
+	connectAttr ($fileNode + ".outColor") ($projNode + ".image");
+ 
+	string $place2dNode = `shadingNode -asUtility place2dTexture -n ($whichCam[0] + "_place2dTexture")`;
+ 
+	connectAttr -f ($place2dNode + ".coverage") ($fileNode + ".coverage");
+ 
+	connectAttr -f ($place2dNode + ".translateFrame") ($fileNode + ".translateFrame");
+ 
+	connectAttr -f ($place2dNode + ".rotateFrame") ($fileNode + ".rotateFrame");
+ 
+	connectAttr -f ($place2dNode + ".mirrorU") ($fileNode + ".mirrorU");
+ 
+	connectAttr -f ($place2dNode + ".mirrorV") ($fileNode + ".mirrorV");
+ 
+	connectAttr -f ($place2dNode + ".stagger") ($fileNode + ".stagger");
+ 
+	connectAttr -f ($place2dNode + ".wrapU") ($fileNode + ".wrapU");
+ 
+	connectAttr -f ($place2dNode + ".wrapV") ($fileNode + ".wrapV");
+ 
+	connectAttr -f ($place2dNode + ".repeatUV") ($fileNode + ".repeatUV");
+ 
+	connectAttr -f ($place2dNode + ".offset") ($fileNode + ".offset");
+ 
+	connectAttr -f ($place2dNode + ".rotateUV") ($fileNode + ".rotateUV");
+ 
+	connectAttr -f ($place2dNode + ".noiseUV") ($fileNode + ".noiseUV");
+ 
+	connectAttr -f ($place2dNode + ".vertexUvOne") ($fileNode + ".vertexUvOne");
+ 
+	connectAttr -f ($place2dNode + ".vertexUvTwo") ($fileNode + ".vertexUvTwo");
+ 
+	connectAttr -f ($place2dNode + ".vertexUvThree") ($fileNode + ".vertexUvThree");
+ 
+	connectAttr -f ($place2dNode + ".vertexCameraOne") ($fileNode + ".vertexCameraOne");
+ 
+	connectAttr ($place2dNode + ".outUV") ($fileNode + ".uv");
+ 
+	connectAttr ($place2dNode + ".outUvFilterSize") ($fileNode + ".uvFilterSize");
+
+	connectAttr -force ($projNode + ".outColor") ($surfaceShader + ".outColor");
+
+
+
+
+	//set projection attrs
+	setAttr ($projNode + ".projType") 8;
+
+	connectAttr -f ($whichCam[1] + ".message")  ($projNode + ".linkedCamera");//cameraShape to projection node
+
+	setAttr ($projNode + ".fitType") 2; //Match Camera resolution Gate - this is the same as the cameras imagePlane fitType
+	//setAttr ($projNode + ".fitType") 1; //Match Camera Film Gate - this is different than the cameras imagePlane fitType
+
+	setAttr ($projNode + ".fitFill") 2; //vertical
+
+	//set the file node's filter type to mipmap
+	setAttr ($fileNode + ".filterType") 1;
+
+	//apply shader to plane
+	sets -edit -forceElement $surfaceShaderSG $liquifyPlaneShape[0];
+
+
+	//make the texture reference
+	select -r $liquifyPlane;
+	makeReferenceObject;
+	//connectAttr -f ($liquifyPlane + ".translate") ($liquifyPlane + "_reference.translate");
+	setAttr ($liquifyPlane + "_reference.visibility") 0;
+	
+	select -cl  ;
+
+
+	string $imagePlanes[] = `listConnections -t "imagePlane" $whichCam[1]`;
+	float $imagePlaneRot[];
+
+	//we get these values on of the possibility that the user
+	//changed the offset and rotate values of the image plane
+	//if so, the projection will not match the position and rotation of the image plane
+
+	$imagePlaneRot = `getAttr ($imagePlanes[0] + ".rotate")`;
+	$imagePlaneOffsetX = `getAttr ($imagePlanes[0] + ".offsetX")`;
+	$imagePlaneOffsetY = `getAttr ($imagePlanes[0] + ".offsetY")`;
+
+	//we can match the rotation but not the offset of the imagePlane values
+	if( $imagePlaneRot[0] != 0 || $imagePlaneRot[1] != 0 || $imagePlaneRot[2] != 0 )
+	{
+		print("imagePlane rot != 0 \n");
+		print("imagePlane rotation = " + $imagePlaneRot[0] + ", " + $imagePlaneRot[1] + ", " + $imagePlaneRot[2] +  "\n");
+		$imagePlaneRot[0] *= -1;
+		$imagePlaneRot[1] *= -1;
+		$imagePlaneRot[2] *= -1;
+		print("imagePlane rotation NEGATED: " + $imagePlaneRot[0] + ", " + $imagePlaneRot[1] + ", " + $imagePlaneRot[2] +  "\n");
+	
+		//get the plane's original worldRotatePivot value stored at creation time in custom attr
+		vector $WRP = `getAttr ($liquifyPlane + ".worldRotPivot")`;
+		print("WRP = " + $WRP + "\n");
+		//set the original rotate pivot before we re-rotate the plane so that
+		//the projection matches the rotation o the imageplane
+		xform -ws -p true -rp ($WRP.x) ($WRP.y) ($WRP.z) $liquifyPlane;
+		print("New WRP set\n");
+
+		rotate -r -os 0 0 $imagePlaneRot $liquifyPlane;
+	}
+	if( ($imagePlaneOffsetX != 0)  ||  ($imagePlaneOffsetY != 0) )
+	{
+		string $confirm = daConfirmMessage("Warning", "Camera imagePlane has non-zero offset values.\nThe liquify plane will not register perfectly.", 1 );
+		if($confirm == "Cancel")
+		{
+			error("Operation cancelled.");
+		}
+	}
+
+	
+
+//////////////////////////////////
+
+	parent -w $liquifyPlane;//unparent plane from camera
+
+	//determine if the liquify plane has already been projection mapped.
+	//If it hasn'e been mapped, set its projectionMapped attr to true and continue
+	if( `getAttr ($liquifyPlane + ".projectionMapped")`)
+	{
+		daConfirmMessage("Error", "Plane is already connected to surface shader.", 1 );
+		error("Plane is already connected to surface shader.");
+	}
+	else
+	{
+		setAttr ($liquifyPlane + ".projectionMapped") true;
+	}
+		
+
+
+	//lock the plane attrs in order to prevent further movement
+	setAttr -lock true ($liquifyPlane + ".tx");
+	setAttr -lock true ($liquifyPlane + ".ty");
+	setAttr -lock true ($liquifyPlane + ".tz");
+	setAttr -lock true ($liquifyPlane + ".rx");
+	setAttr -lock true ($liquifyPlane + ".ry");
+	setAttr -lock true ($liquifyPlane + ".rz");
+	setAttr -lock true ($liquifyPlane + ".sx");
+	setAttr -lock true ($liquifyPlane + ".sy");
+	setAttr -lock true ($liquifyPlane + ".sz");
+
+
+	
+
+
+	string $returnValues[];
+	$returnValues[0] = $surfaceShader;
+	$returnValues[1] = $fileNode;
+
+
+	setAttr ($projNode + ".fitType") 2;
+
+
+	refreshLiquifyUI();
+
+	return $returnValues;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//[0] - camImagePlane	[1] - liquifyPlane
+//[2] - liquifyPlaneShape	[3] - shadingEngine
+//[4] - surfaceShader	[5] - projectionNode
+//[6] - fileNode		[7] - targetObject
+proc string[] daListCamConnections(string $currentCamShape)
+{
+	string $returnValues[];
+
+	string $camImagePlane[] = `listConnections -type imagePlane $currentCamShape`;
+	//print ("ImagePlane = " + $camImagePlane[0] + "\n");
+	$returnValues[0] = $camImagePlane[0];
+
+
+	string $liquifyPlane = `getAttr ($currentCamShape + ".liquifyPlane")`;
+	//print ("LiquifyPlane = " + $liquifyPlane + "\n");
+	$returnValues[1] = $liquifyPlane;
+
+
+	string $liquifyPlaneShape[] = `listRelatives -s $liquifyPlane`;
+	//print ("LiquifyPlaneShape = " + $liquifyPlaneShape[0] + "\n");
+	$returnValues[2] = $liquifyPlaneShape[0];
+
+
+	string $shadingEngine[] = `listConnections -type shadingEngine $liquifyPlaneShape[0]`;
+	//print ("ShadingEngine = " + $shadingEngine[0] + "\n");
+	$returnValues[3] = $shadingEngine[0];
+
+
+	string $surfaceShader[] = `listConnections -type surfaceShader $shadingEngine[0]`;
+	//print ("SurfaceShader = " + $surfaceShader[0] + "\n");
+	$returnValues[4] = $surfaceShader[0];
+	
+
+	string $projectionNode[] = `listConnections -type projection $surfaceShader[0]`;
+	//print ("ProjectionNode = " + $projectionNode[0] + "\n");
+	$returnValues[5] = $projectionNode[0];
+
+
+	string $fileNode[6] = `listConnections -type file $projectionNode[0]`;
+	//print ("fileNode = " + $fileNode[0] + "\n");
+	$returnValues[6] = $fileNode[0];
+
+	string $targetObject = `getAttr ($currentCamShape + ".targetObject")`;
+	$returnValues[7] = $targetObject;
+
+	return $returnValues;
+	
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//this proc returns the new source image and places the value 
+//in the appropriate camShape attr
+proc string daReplaceSourceImage(string $currentCamShape, string $attribute)
+{
+	
+	string $newSourceImage = `fileDialog -m 0`;
+
+	if($newSourceImage == "")
+	{
+		daConfirmMessage("error", "No file selected", 1 );
+		error "No File Selected";
+	}
+	else
+	{
+	//print ($newSourceImage + "\n");
+
+	setAttr -type "string" ($currentCamShape + "." + $attribute) $newSourceImage;
+
+	return $newSourceImage;
+	}
+	refreshLiquifyUI();	
+}
+
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc daResetResolutionDisplay( string $textControlName, string $cameraShape)//("resolutions_text_" + $currentCamShape)
+{
+	//print ("Inside resetresDisplay Proc....\n");
+	string $resX = `getAttr ($cameraShape + ".imageSizeX")`;
+	//print ("ResX = " + $resX + "\n");
+	string $resY = `getAttr ($cameraShape + ".imageSizeY")`;
+	//print ("ResY = " + $resY + "\n");
+	
+	string $returnText = `text -e -label ($resX + " X " + $resY) $textControlName` ;
+	//print ("ReturnText = " + $returnText + "\n");
+
+} 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc daSetGlobalTargetObject()
+{
+	daPrepScene();
+
+	global string $daTargetObject;
+	
+	string $object[] = `ls -sl`;
+	
+	int $size = size($object);
+	if( $size == 0 )
+	{
+		daConfirmMessage("Error", "Please select an object.", 1 );
+		error("Please select an object.");
+	}
+
+	string $objectShape[] = `listRelatives -s $object`;
+	
+	string $type = `objectType $objectShape[0]`;
+
+	if ( ($type == "mesh") || ($type == "nurbsSurface") || ($type == "subdiv") )
+	{ 
+		$daTargetObject = $object[0]; 
+		refreshLiquifyUI();
+	}
+	else
+	{ 
+		daConfirmMessage("Error", "Please load a mesh, nurbs, or subdiv surface.", 1 );
+		error ("Object type is not accepted");
+	}
+
+	
+	string $workspace = `workspace -q -rd`;
+
+	int $Xres = getBakeResolution("Choose the UV Snapshot Resolution");
+	int $Yres = $Xres;
+
+	string $uvSnapshot = ($workspace + "images/" + $object[0] + "_UVsnapshot.tif");
+	select -r $object[0];
+	uvSnapshot -aa -n $uvSnapshot -xr $Xres -yr $Yres -r 0 -g 0 -b 0 -o -ff tif;
+	select -cl;
+}
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//sets the target object in the cameraShapes attribute
+//looks for current camera if one is not specified
+//checks to make sure selected object is geometry
+proc daLoadTargetObject(string $cameraShape)
+{
+	global string $daTargetObject;
+
+	daPrepScene();
+
+	string $whichCam[]; 
+	
+	if ($cameraShape == "")
+	{
+		$whichCam = daWhichCam();	
+	}
+	else
+	{
+		$whichCam[1] = $cameraShape;
+	}
+	
+	string $object[] = `ls -sl`;
+	//print $object;
+
+	string $objectShape[] = `listRelatives -s $object[0]`;
+	
+	string $type = `objectType $objectShape[0]`;
+
+	if ( ($type != "mesh") || ($type != "nurbsSurface") || ($type != "subdiv") )
+	{ 
+		daConfirmMessage("Error", "Please load a mesh, nurbs, or subdiv surface.", 1 );
+		error ("Object type is not accepted");
+	}
+	
+	
+	setAttr -type "string" ($whichCam[1] + ".targetObject") $object[0];
+
+
+	
+	string $workspace = `workspace -q -rd`;
+
+	string $IO = daConfirmMessage("Create UV Snapshot", "Would you like to rebuild the UV snapshot for this target object?", 2);
+	
+	if($IO == "Yes")
+	{
+		int $Xres = getBakeResolution("Choose the UV Snapshot Resolution");
+		int $Yres = $Xres;
+
+		string $uvSnapshot = ($workspace + "images/" + $object[0] + "_UVsnapshot.tif");
+		select -r $object[0];
+		uvSnapshot -aa -n $uvSnapshot -xr $Xres -yr $Yres -r 0 -g 0 -b 0 -o -ff tif;
+		select -cl;
+	}
+
+	refreshLiquifyUI();
+
+}
+
+
+
+
+
+
+	
+
+
+
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//toggles the visibility of target object
+//toggles the visibility icon to reflect the state of the target object
+proc daVisibilityToggle(string $symbolButtonName, string $cameraShape)
+{	
+	////////////////print ("In Visibility toggle proc \n__________________________\n");
+	string $myBuffer[];
+	tokenize $symbolButtonName "_" $myBuffer;
+	int $size = size($myBuffer);
+
+	string $attrFocus = $myBuffer[$size - 1];
+	
+	string $targetObject = `getAttr ($cameraShape + "." + $attrFocus)`;
+
+
+
+	string $type = `objectType $targetObject`;
+
+	string $targetObjectTransform[];
+	
+	if ($type != "transform")
+	{
+		 $targetObjectTransform = `listRelatives -parent $targetObject`;
+		 $targetObject = $targetObjectTransform[0];
+	}
+
+	int $isVisible = `getAttr ($targetObject + ".visibility")`;
+
+	if( $isVisible == 1)
+	{
+
+		setAttr ($targetObject + ".visibility") 0;
+
+
+	}
+	else if( $isVisible == 0)
+	{	
+
+		setAttr ($targetObject + ".visibility") 1 ;
+
+
+	}
+	refreshLiquifyUI();
+	
+
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+
+
+
+
+proc imagePlaneVisibilityToggle(string $cameraShape)
+{
+	string $imagePlanes[] = `listConnections -type imagePlane $cameraShape`;
+
+	int $displayMode = `getAttr ($imagePlanes[0] + ".displayMode")`;
+	
+	if($displayMode)
+	{
+		setAttr ($imagePlanes[0] + ".displayMode") 0;
+	}
+	else
+	{
+		setAttr ($imagePlanes[0] + ".displayMode") 2;
+	}
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc string daConfirmMessage(string $title, string $message, int $dialogType)
+{
+    string $returnValue;
+    
+	switch( $dialogType )
+	{ 
+		case 1:
+			$returnValue = `confirmDialog -title $title 
+						-message $message
+						-button "OK"
+						-button "Cancel"`;
+		break;
+
+		case 2:
+			$returnValue = `confirmDialog -title $title 
+						-message $message
+						-button "Yes"
+						-button "No"`;
+		break;
+
+		default:
+			case 1:
+			$returnValue = `confirmDialog -title $title 
+						-message $message
+						-button "OK"
+						-button "Cancel"`;
+		break;
+	}
+
+	return $returnValue;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc string[] daWhichCam()
+{
+	string $returnValues[];
+
+	string $pane = `getPanel -wf`;
+
+	//figure out the camera in the current view in order to use its values in the window
+	string $tempCamera = `modelPanel -q -camera $pane`;
+
+	string $type = `objectType $tempCamera`;
+
+	if($type == "transform")
+	{
+		$returnValues = `listRelatives -shapes $tempCamera`;
+		$returnValues[1] = $returnValues[0];
+		$returnValues[0] = $tempCamera;
+	}
+	else if ($type == "camera")
+	{
+		$returnValues = `listRelatives -p $tempCamera`;
+		$returnValues[1] = $tempCamera;
+	}
+
+	$returnValues[2] = $pane;
+
+	return $returnValues;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc daLookThroughCamera(string $currentCamera)
+{
+	//string $panel = `getPanel -wf`;
+	string $panel = "modelPanel4";
+	
+	lookThroughModelPanel $currentCamera $panel;	
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc int daWireframeOnShaded()
+{
+	int $return;
+
+	//string $pane = `getPanel -wf`;
+	string $pane = "modelPanel4";
+	int $IO = `modelEditor -q -wos $pane`;
+
+	if($IO)
+	{
+		modelEditor -e -wos 0 $pane;
+		$return = 0;
+		//menuItem -e -cb false "wireframeMenuItem";
+	}
+	else
+	{
+		modelEditor -e -wos 1 $pane;
+		$return = 1;
+		//menuItem -e -cb true "wireframeMenuItem";
+	}
+
+	return $return;
+}
+	
+	
+	
+	
+	
+	
+	
+
+
+
+
+
+
+
+
+
+
+
+	
+
+
+
+
+
+proc refreshLiquifyUI()
+{
+	deleteUI LiquifyWindow; 
+	daMayaLiquifyUI();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//   3rd argument 	0 = returnValues only
+//			1 = graphMaterials
+//returns the shading engine name and the surface shader name
+proc string[] daMaterialsAttrEditor(string $cameraShape, string $attr, int $io)
+{	
+	string $object = `getAttr ($cameraShape + "." + $attr)`;
+	string $type = `objectType $object`;
+	
+	string $connections[];
+	string $shadingEngine;
+	string $surfaceShader;
+	
+	if ($type == "transform")
+	{
+		$connections = `listRelatives -s $object`;
+		$object = $connections[0];
+	}
+	
+	$connections = `listConnections -type shadingEngine $object`;
+	$shadingEngine = $connections[0];
+
+	$connections = `listConnections -type surfaceShader $shadingEngine`;
+	if ($connections[0] == "")
+	{
+			$connections = `listConnections -type lambert $shadingEngine`;
+	}
+	if ($connections[0] == "")
+	{
+			$connections = `listConnections -type blinn $shadingEngine`;
+	}
+	if ($connections[0] == "")
+	{
+			$connections = `listConnections -type phong $shadingEngine`;
+	}
+	if ($connections[0] == "")
+	{
+			$connections = `listConnections -type anisotropic $shadingEngine`;
+	}
+	if ($connections[0] == "")
+	{
+			$connections = `listConnections -type phongE $shadingEngine`;
+	}
+	if ($connections[0] == "")
+	{
+			$connections = `listConnections -type rampShader $shadingEngine`;
+	}
+	if ($connections[0] == "")
+	{
+			$connections = `listConnections -type layeredShader $shadingEngine`;
+	}
+	if ($connections[0] == "")
+	{
+			daConfirmMessage("Error", "Cannot find shader attached to object.", 1 );
+			error ("Cannot find shader attached to object.");
+	}
+
+
+	$surfaceShader = $connections[0];
+	
+	select -r $surfaceShader;
+
+	if($io)
+	{
+		ShowAttributeEditorOrChannelBox;
+	}
+
+	string $returnValue[];
+	$returnValue[0] = $shadingEngine;
+	$returnValue[1] = $surfaceShader;
+
+	return $returnValue;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc daTearOffHypershade()
+{
+	tearOffPanel "Hypershade" "hyperShadePanel" true;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//return - bool - determines whether or not a file exists in the images folder
+proc int daDoesFileExist(string $fileName, string $folder)  //daDoesFileExist("LQ_Cam_liquified", "images")
+{
+	string $path; 
+
+	string $workspace = `workspace -q -rd`;
+	//string $directory = $workspace + "images/";
+	string $directory = $workspace + $folder + "/";
+	
+	$path = $directory + $fileName + ".tif";
+	//print ($path + "\n");
+
+	if (`filetest -r $path`)
+	{
+		return 1;
+	}
+	else
+	{
+		return 0;
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+global proc daResetCameraImagePlane()
+{
+	string $pane = `getPanel -wf`;
+
+	//figure out the camera in the current view in order to use its values in the window
+	string $whichCam = `modelPanel -q -camera $pane`;
+	$whichCamShape = `ls -dag -shapes -ap $whichCam`;
+
+	setAttr ($whichCamShape[0] + ".verticalFilmOffset") 0;
+	setAttr ($whichCamShape[0] + ".horizontalFilmOffset") 0;
+	setAttr ($whichCamShape[0] + ".overscan") 1.3;
+
+	camera -e -displayFilmGate off -displayResolution on -overscan 1.3 $whichCam;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//returns the path name of image saved.  Saves image in images folder
+proc string daSaveRenderedImage(string $fileName)
+{
+	string $returnValue; 
+
+	string $workspace = `workspace -q -rd`;
+	string $directory = $workspace + "images/";
+	
+	$returnValue = $directory + $fileName + ".tif";
+
+	setAttr "defaultRenderGlobals.imageFormat" 3;
+	renderWindowSaveImageCallback "renderView" ($directory + $fileName + ".tif") "TIFF";
+	
+	return $returnValue;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc daRenderCurrentCamera(string $currentCamShape)
+{
+	//reset imagePlane
+	setAttr ($currentCamShape + ".verticalFilmOffset") 0;
+	setAttr ($currentCamShape + ".horizontalFilmOffset") 0;
+	setAttr ($currentCamShape + ".overscan") 1;
+	
+	int $resX = `getAttr ($currentCamShape + ".imageSizeX")`;
+	print("ResX = " + $resX + "\n");
+	int $resY = `getAttr ($currentCamShape + ".imageSizeY")`;
+	print("ResY = " + $resY + "\n");
+
+	string $camera[] = `listRelatives -p $currentCamShape`;
+	print ("camera = " + $camera[0] + "\n");
+
+	//set the render qualities to preview
+	setAttr "defaultRenderQuality.shadingSamples" 1;
+	print("shadingSamples line\n");
+	setAttr "defaultRenderQuality.maxShadingSamples" 1;
+	print("maxShadingSamples line\n");
+	setAttr "defaultRenderQuality.useMultiPixelFilter" 0;
+	print("useMultiplePixel line\n");
+	setAttr "defaultRenderQuality.edgeAntiAliasing" 3;
+	print("defaultrenderQuality line\n");
+	setAttr "defaultRenderGlobals.imageFormat" 3;
+	print("defaultRenderGlobals line\n");
+
+
+	string $result = `render -x $resX -y $resY $camera[0]`;
+	print ("the result " + $result);	
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//renders the distorted image in the appropriate images folder
+proc string daLiquifySourceImage(string $cameraShape, string $textFieldName)
+{
+	string $fileName = `textField -q -tx $textFieldName`;
+
+	int $IO = daDoesFileExist($fileName, "images");
+
+	if ($IO)
+	{
+		//print("____________FILETEST FOUND ANOTHER IMAGE_____________\n");
+		string $message = ("Would you Like to replace " + $fileName + " with new image?");
+		string $result = daConfirmMessage("Warning", $message, 1 );
+		
+		if($result == "OK")
+		{
+			daRenderCurrentCamera($cameraShape);
+		}
+		else if($result == "Cancel")
+		{
+			error ("Operation cancelled.");
+		}
+	}
+	else
+	{
+		daRenderCurrentCamera($cameraShape);
+	}
+
+
+	string $renderedImagePath;
+
+	$renderedImagePath = `daSaveRenderedImage($fileName)`;
+	print ("This is the rendered image path = " + $renderedImagePath +"\n");
+
+	setAttr -type "string" ($cameraShape + ".liquifiedImage") $renderedImagePath;
+
+	//launchImageEditor -viewImageFile $renderedImagePath;
+
+	string $targetObject = `getAttr ($cameraShape + ".targetObject")`;
+
+	daApplyLiquified($cameraShape, $targetObject);
+
+	return $renderedImagePath;	
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//deletes the plane and replaces it with a new one that inherits the origunal's trasformation values
+proc daClearLiquifyPlane(string $cameraShape)
+{
+	string $confirm = daConfirmMessage("Warning", "Are you sure you want to clear the liquify plane?", 1 );
+	if($confirm == "Cancel")
+	{
+		error("Operation cancelled.");
+	}
+
+	string $liquifyPlane = `getAttr ($cameraShape + ".liquifyPlane")`;
+
+	string $textureReference = $liquifyPlane + "_reference";
+
+	if(`objExists $liquifyPlane`)
+	{
+		delete $liquifyPlane;
+	}
+	else
+	{
+		string $message = $liquifyPlane + " does not exist.";
+		daConfirmMessage("Warning",  $message, 1 );		
+		warning ($liquifyPlane + " does not exist.");
+	}
+	
+	if(`objExists $textureReference`)
+	{
+		delete $textureReference;
+	}
+	else
+	{
+		string $message = $textureReference + " does not exist.";
+		daConfirmMessage("Warning",  $message, 1 );		
+		warning ($textureReference + " does not exist.");
+	}
+
+	setAttr ($cameraShape + ".projectImage") false;
+	setAttr -type "string" ($cameraShape + ".liquifyPlane") "";
+	setAttr -type "string" ($cameraShape + ".liqProjSS") "";
+	setAttr -type "string" ($cameraShape + ".bakedLiquifiedSS") "";
+	setAttr -type "string" ($cameraShape + ".bakedLiquifiedSource") "";
+	setAttr -type "string" ($cameraShape + ".maskProjSS") "";
+	setAttr -type "string" ($cameraShape + ".bakedMaskProjSS") "";
+	
+	refreshLiquifyUI();
+}
+
+
+
+
+
+
+
+
+
+
+//sets the transparency using the floatSlider control
+proc daSetLiquifyPlaneTransparency(string $currentCamShape, string $transparencySlider)
+{
+	float $value = `floatSlider -q -v $transparencySlider`;
+	print ("Value = " + $value + "\n");
+
+	string $shadingNodes[] = daMaterialsAttrEditor($currentCamShape, "liquifyPlane", 0);
+	print ("Shading nodes = \n");
+	print($shadingNodes);
+	
+	setAttr ($shadingNodes[1] = ".outTransparency") -type double3 $value $value $value ;	
+}
+
+
+
+
+
+
+
+//return values
+//[0] - surfaceShader
+//[1] - shadingEngine
+//[2] - projectionNode
+//[3] - fileNode
+//[4] - place3dnode
+//[5] - place2dnode
+
+proc string[] daCreateSurfaceShaderNetwork(string $cameraShape, string $attribute)
+{
+	print ("INSIDE daCREATE_SURFACE_SHADER_NETWORK\n");
+	
+	string $returnValues[];
+
+	string $cameraTransform[] = `listRelatives -p $cameraShape`;
+	//create the Surface shader and apply it to plane with image with projection
+	//add custom string attribute with cameraShape name
+	//connect the cameraShape's message attr to the surfaceShader's linkedCamera attr
+	string $surfaceShader = `shadingNode -asShader surfaceShader -n ($cameraTransform[0] + "_" + $attribute + "_SS")`;
+		addAttr -ln "linkedCamera"  -dt "string"  $surfaceShader;
+		setAttr -e-keyable false ( $surfaceShader + ".linkedCamera");
+		setAttr -type "string" ( $surfaceShader + ".linkedCamera") $cameraShape;
+		//connectAttr -f ($cameraShape + ".message")  ( $surfaceShader + ".linkedCamera");
+
+
+
+	
+	string $surfaceShaderSG = `sets -renderable true -noSurfaceShader true -empty -name ($surfaceShader + "_SG")`;
+	
+	connectAttr -f ($surfaceShader + ".outColor") ($surfaceShaderSG + ".surfaceShader");
+
+
+
+	//create the file,  projection, place2dTexture and place3dtexture nodes and connect them
+	//to the color attr of surface shader
+ 
+	string $projNode = `shadingNode -asTexture projection -n ($cameraTransform[0] + "_" + $attribute + "_ProjectionNode")`;
+	
+	string $fileNode = `shadingNode -asTexture file -n ($cameraTransform[0] + "_" + $attribute + "_File")`;
+	connectAttr -f ($cameraShape + "." + $attribute) ($fileNode + ".fileTextureName");
+
+
+	
+	string $place3dNode = `shadingNode -asUtility place3dTexture -n ($cameraTransform[0] + "_place3dTexture")`;
+	
+
+	connectAttr ($place3dNode + ".wim[0]") ($projNode + ".pm");
+
+	connectAttr ($fileNode + ".outColor") ($projNode + ".image");
+ 
+	string $place2dNode = `shadingNode -asUtility place2dTexture -n ($cameraTransform[0] + "_place2dTexture")`;
+ 
+	connectAttr -f ($place2dNode + ".coverage") ($fileNode + ".coverage");
+ 
+	connectAttr -f ($place2dNode + ".translateFrame") ($fileNode + ".translateFrame");
+ 
+	connectAttr -f ($place2dNode + ".rotateFrame") ($fileNode + ".rotateFrame");
+ 
+	connectAttr -f ($place2dNode + ".mirrorU") ($fileNode + ".mirrorU");
+ 
+	connectAttr -f ($place2dNode + ".mirrorV") ($fileNode + ".mirrorV");
+ 
+	connectAttr -f ($place2dNode + ".stagger") ($fileNode + ".stagger");
+ 
+	connectAttr -f ($place2dNode + ".wrapU") ($fileNode + ".wrapU");
+ 
+	connectAttr -f ($place2dNode + ".wrapV") ($fileNode + ".wrapV");
+ 
+	connectAttr -f ($place2dNode + ".repeatUV") ($fileNode + ".repeatUV");
+ 
+	connectAttr -f ($place2dNode + ".offset") ($fileNode + ".offset");
+ 
+	connectAttr -f ($place2dNode + ".rotateUV") ($fileNode + ".rotateUV");
+ 
+	connectAttr -f ($place2dNode + ".noiseUV") ($fileNode + ".noiseUV");
+ 
+	connectAttr -f ($place2dNode + ".vertexUvOne") ($fileNode + ".vertexUvOne");
+ 
+	connectAttr -f ($place2dNode + ".vertexUvTwo") ($fileNode + ".vertexUvTwo");
+ 
+	connectAttr -f ($place2dNode + ".vertexUvThree") ($fileNode + ".vertexUvThree");
+ 
+	connectAttr -f ($place2dNode + ".vertexCameraOne") ($fileNode + ".vertexCameraOne");
+ 
+	connectAttr ($place2dNode + ".outUV") ($fileNode + ".uv");
+ 
+	connectAttr ($place2dNode + ".outUvFilterSize") ($fileNode + ".uvFilterSize");
+
+	connectAttr -force ($projNode + ".outColor") ($surfaceShader + ".outColor");
+
+
+	connectAttr -f ($cameraShape + ".message")  ($projNode + ".linkedCamera");//cameraShape to projection node
+
+	//set projection attrs
+	setAttr ($projNode + ".projType") 8;
+	int $attrInfo = `getAttr ($projNode + ".projType")`;
+	print("\n\n\n\n\nProjection type = " + $attrInfo + "\n");
+
+	//setAttr ($projNode + ".fitType") 2; //Match Camera Resolution Gate
+	setAttr ($projNode + ".fitType") 1; //Match Camera Film Gate
+
+	$attrInfo = `getAttr ($projNode + ".fitType")`;
+	print("Fitype = " + $attrInfo + "\n");
+
+	setAttr ($projNode + ".fitFill") 2; //vertical
+	$attrInfo = `getAttr ($projNode + ".fitFill")`;
+	print("Fitfill type = " + $attrInfo + "\n\n\n\n\n\n");
+
+	//set the file node's filter type to mipmap
+	setAttr ($fileNode + ".filterType") 1; //Mipmap
+
+	$returnValues[0] = $surfaceShader;
+	$returnValues[1] = $surfaceShaderSG;
+	$returnValues[2] = $projNode;
+	$returnValues[3] = $fileNode;
+	$returnValues[4] = $place3dNode;
+	$returnValues[5] = $place2dNode;
+
+	//print($returnValues);
+	
+	return $returnValues;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc daApplyLiquified(string $cameraShape, string $targetObject)
+{
+	
+
+
+print ("INSIDE daAPPLYLIQUIFIED\n");
+	string $shadingnodes[];
+	string $temp[];
+	string $confirm;
+
+	string $targetShape[] = `listRelatives -s $targetObject`;
+print ("Line: 2069 targetShape = ");print ($targetShape);
+
+	string $liquifiedImage = `getAttr  ($cameraShape + ".liquifiedImage")`;
+print ("Line: 2072 liquifiedImage = "); print ($liquifiedImage);
+
+	if ($liquifiedImage == "")
+	{
+print ("Line: 2076 Liquified = \"\" .\n");
+		$confirm = daConfirmMessage("Warning", "Liquified image is not specified.\nWould you like to load a liquified image?", 1 );
+
+		if($confirm == "OK")
+		{
+			daReplaceSourceImage($cameraShape, "liquifiedImage");
+			$liquifiedImage = `getAttr  ($cameraShape + ".liquifiedImage")`;
+
+			if($liquifiedImage == "")
+			{
+				error("Liquified image not specified.");
+			}
+			else
+			{
+
+				$shadingNodes = daCreateSurfaceShaderNetwork($cameraShape, "liquifiedImage");
+print("Line:2092 Shading nodes created\n");print("ShadingNodes = "); print($shadingNodes);
+				//connectControl ($cameraShape + ".liquifiedImage") ($shadingNodes[3] + ".fileTextureName");
+				setAttr ($cameraShape + ".liqProjSS") $shadingNodes[0];
+
+				//connectAttr -f ($targetShape[0] + ".instObjGroups[0]") ($shadingNodes[1] + ".dnSetMembers[0]");
+				select -r $targetObject;
+				sets -e -forceElement $shadingNodes[1];
+			}
+
+		}
+		else if ($confirm == "Cancel")
+		{
+			error ("Operation cancelled.");
+		}				
+	}
+	else
+	{
+		string $liqProjSS = `getAttr ($cameraShape + ".liqProjSS")`;
+print("\nLine: 1612 LiqProjSS = " + $liqProjSS + "\n");
+
+		
+		
+		if($liqProjSS == "")
+		{
+			$shadingNodes = daCreateSurfaceShaderNetwork($cameraShape, "liquifiedImage");
+print("Line: 1617 ShadingNodes = "); print($shadingNodes);
+			setAttr -type "string" ($cameraShape + ".liqProjSS") $shadingNodes[0];
+	    		//int $result = `connectAttr -f ($targetShape[0] + ".instObjGroups[0]") ($shadingNodes[1] + ".dnSetMembers[0]")`;
+			select -r $targetObject;
+			sets -e -forceElement $shadingNodes[1];
+
+		}
+		else
+		{
+print ("\nLine: 1626\n");
+			string $SG[] = `listConnections -type "shadingEngine" $liqProjSS`;
+			select -r $targetObject;
+			sets -e -forceElement $SG[0];
+		}
+	}
+
+
+
+	//hide all liquify planes in scene
+	string $validCamShapes[] = daGetValidCameras();
+	
+	string $currentCam;
+	
+	for($currentCam in $validCamShapes)
+	{
+		string $liqPlane = `getAttr ($currentCam + ".liquifyPlane")`;
+		setAttr ($liqPlane + ".visibility") 0;	
+	}
+
+
+	
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//this proc opens a dialog box and allows the user to choose a resoultion
+//it returns the resolution as int
+proc int getBakeResolution(string $title)
+{
+	int $res;
+	
+	string $response;
+	//string $window = `window -title "Choose resolution"
+	$response = `confirmDialog -title $title
+       		-button "512 X 512"
+			-button "1024 X 1024"
+			-button "2048 X 2048"			
+			-button "4096 X 4096"
+			-cancelButton "Cancel"`;
+       
+	if($response == "512 X 512")
+	{
+		$res = 512;
+	}
+	else if($response == "1024 X 1024")
+	{
+		$res = 1024;
+	}
+	else if($response == "2048 X 2048")
+	{
+		$res = 2048;
+	}
+	else if($response == "4096 X 4096")
+	{
+		$res = 4096;
+	}
+
+	return $res;
+}
+
+
+
+
+
+
+
+
+
+
+
+proc daBakeLiquified(string $cameraShape)
+{
+	string $liquifiedSS = `getAttr ($cameraShape + ".liqProjSS")`;
+	string $liquifiedImage = `getAttr ($cameraShape + ".liquifiedImage")`;
+
+	string $camera[] = `listRelatives -p $cameraShape`;
+	
+	string $confirm;
+	
+	if ($liquifiedImage == "")
+	{
+print ("Line: 2186 LiquifiedImage = \"\" .\n");
+		$confirm = daConfirmMessage("Error", "Liquified image is not specified.", 1 );
+		error("Liquified image is not specified.");
+	}
+	if ($liquifiedSS == "")
+	{
+print ("Line: 2192 LiquifiedSS == \"\"");
+		$confirm = daConfirmMessage("Error", "Liquified shading network is not specified.\nApply liquified before baking.", 1 );
+		error("Liquified shading network is not specified.");
+	}
+
+
+
+	int $Xres = getBakeResolution("Choose a Resolution");;
+	int $Yres = $Xres;
+		print("LINE: 2202 x and y res = " + $Xres + " " + $Yres + "\n");
+	
+	string $nodes[] = daListCamConnections($cameraShape);
+	//returns:   	//[0] - camImagePlane	[1] - liquifyPlane
+				//[2] - liquifyPlaneShape	[3] - shadingEngine
+				//[4] - surfaceShader	[5] - liquify projectionNode
+				//[6] - fileNode		[7] - targetObject
+
+	string $projectionNode[] = `listConnections -type projection $liquifiedSS`;
+		print ("LINE: 2211 curentProjectionNode " + $projectionNode[0] + "\n");
+	string $targetObject = $nodes[7];
+		print ("LINE: 2213 targetObject " + $targetObject+ "\n");
+	
+	$camera = `listRelatives -p $cameraShape`;
+		print ("LINE: 2216 camera " + $camera[0]+ "\n");
+
+
+
+
+
+
+       ////////////////////////////////////////////////////////////////////////////////////////
+	string $workspace = `workspace -q -rd`;
+		print ("LINE: 2225 workspace:\n" + $workspace  + "\n");
+	
+	string $imagesPath = $workspace + "sourceimages";
+		print ("LINE: 2228 imagesPath:\n" + $imagesPath+ "\n");
+
+	string $newFileNodeName = ($camera[0] + "_Baked_Liquified_" + $Xres + "_" + $targetObject );
+		print ("LINE: 2231 newFileNode " + $newFileNodeName+ "\n");
+
+
+	//create baked folder path string
+	string $bakedImagesPath = ( $workspace + "baked");
+		print("LINE: 2236 bakedImagePath " + $bakedImagesPath + "\n");
+
+
+	//check if baked folder exists
+	int $bakedFolderExists = `filetest -d $bakedImagesPath`;
+		print("LINE: 2241 bakedFolder exists = " + $bakedFolderExists + "\n");
+
+
+	//if it does not exist, create the baked folder
+	if(!$bakedFolderExists )
+	{
+		sysFile -makeDir $bakedImagesPath;
+		print ("LINE: 2248 Does Baked directory exist now? \n");
+		print (`filetest -d $bakedImagesPath`);	
+	}
+
+
+	//list the files in the baked folder that match the new baked image name
+	string $namesInBakedFolder[] = `getFileList -folder ($bakedImagesPath + "/") -filespec ($newFileNodeName + "*")`;
+		print("LINE: 2255 files in baked folder that match new baked name\n"); print($namesInBakedFolder);
+
+
+
+	//number of files that match the name of the new baked image
+	int $sizeOfNamesakes = `size($namesInBakedFolder)`;
+		print("LINE: 2260 number of namesakes = " + $sizeOfNamesakes + "\n");
+
+
+
+	//this boolean will set the force overwrite flag in convertSolidTx
+	int $forceOverwrite = 0;
+
+
+
+	// if file exists ask user wether to overwrite or create a new one
+	if($sizeOfNamesakes > 0)
+	{
+		string $result = daConfirmMessage("Warning", "Would you like to overwrite existing baked image?", 2);
+		if($result == "Yes")
+		{
+			$forceOverwrite = 1;
+			$sizeOfNamesakes--;
+			$newFileNodeName += $sizeOfNamesakes;
+			print("LINE: 2279 Force overwrite enabled.\n");
+		}
+		if($result == "No")
+		{
+			$forceOverwrite = 0;
+			$newFileNodeName += $sizeOfNamesakes;
+			print ("LINE 2285 baked name = " + $newFileNodeName + "\n");
+			print("LINE: 2286 Force overwrite NOT enabled.\n");
+		}
+	}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+	//these lines will delete the previous baked shading network
+	string $oldBakedLiquifiedSS = `getAttr ($cameraShape + ".bakedLiquifiedSS")`;
+		print("LINE: 2293 Baked liquified SS = " + $oldBakedLiquifiedSS + "\n");
+	if($oldBakedLiquifiedSS != "")
+	{
+		string $oldBakedFileNode[] = `listConnections -type file $oldBakedLiquifiedSS`;
+			print("LINE: 2297 Baked liquified file = " + $oldBakedFileNode[0] + "\n");
+		if($oldBakedFileNode[0] != "")
+		{
+			string $oldBakedPlace2DNode[] = `listConnections -type place2dTexture $oldBakedFileNode[0]`;
+				//print("LINE: 2301 Baked place2d file = " + $oldBakedPlace2DNode[0] + "\n");
+			delete $oldBakedPlace2DNode[0];
+			delete $oldBakedFileNode[0];
+		}
+		
+		string $oldBakedLiquifiedSG[] = `listConnections -type shadingEngine $oldBakedLiquifiedSS`;
+		if($oldBakedLiquifiedSG[0] != "")
+		{
+			delete $oldBakedLiquifiedSG[0];
+		}
+
+		delete $oldBakedLiquifiedSS;		
+		
+	}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+	string $bakedNodes[] = 
+	`convertSolidTx 	-antiAlias 0 -bm 3 -fts 0 
+				-sp 0 -sh 0 -alpha 0 
+				-force $forceOverwrite
+				-doubleSided false -componentRange 0 
+				-resolutionX $Xres -resolutionY $Yres 
+				-fileFormat "tif"  
+				-uvRange 0 1 0 1 
+				-fileImageName ($bakedImagesPath + "/" + $newFileNodeName + ".tif")
+				-name ($newFileNodeName + "_file")
+				($projectionNode[0] + ".outColor") $targetObject`;
+
+		print("\nLINE: 2329 baked nodes = "); print ($bakedNodes); 
+	
+
+
+	string $bakedLiquifiedSourcePath = `getAttr ($bakedNodes[0] + ".fileTextureName")`;
+		print ("LINE: 2334 bakedLiquifiedSourcePath:\n" + $bakedLiquifiedSourcePath);
+
+
+
+	//get the name of the baked nodes if they exist
+	setAttr -type "string" ($cameraShape + ".bakedLiquifiedSource") $bakedLiquifiedSourcePath;
+
+
+
+
+
+
+
+
+
+
+
+
+
+	string $surfaceShader = `shadingNode -asShader surfaceShader -n ($camera[0] + "_Baked_liquify_SS")`;
+		addAttr -ln "linkedCamera"  -dt "string"  $surfaceShader;
+		setAttr -e-keyable false ( $surfaceShader + ".linkedCamera");
+		setAttr -type "string" ( $surfaceShader + ".linkedCamera") $cameraShape;
+		connectAttr -f ($cameraShape + ".message")  ( $surfaceShader + ".linkedCamera");
+
+		setAttr -type "string" ($cameraShape + ".bakedLiquifiedSS") $surfaceShader;
+
+	
+	string $surfaceShaderSG = `sets -renderable true -noSurfaceShader true -empty -name ($camera[0] + "_Baked_liquify_SG")`;
+	
+	connectAttr -f ($surfaceShader + ".outColor") ($surfaceShaderSG + ".surfaceShader");
+
+	
+	string $fileNode = $bakedNodes[0];
+	connectAttr -f ($cameraShape + ".bakedLiquifiedSource") ($fileNode + ".fileTextureName");
+	//set file node filter type to mipmap
+	setAttr ( $fileNode + ".filterType") 1;
+
+
+	connectAttr -force ($fileNode + ".outColor") ($surfaceShader + ".outColor");
+
+ 	
+	string $place2dNode = $bakedNodes[1]; 
+
+
+	//apply baked to surfaceShader to targetObject
+	string $return = `sets -edit -forceElement $surfaceShaderSG $nodes[7]`;
+
+	if($return != "")
+	launchImageEditor -viewImageFile $bakedLiquifiedSourcePath;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//will apply the baked liqified shader to target object of cameraShape
+proc displayBakedLiquified(string $cameraShape)
+{
+	string $bakedLiquified = `getAttr ($cameraShape + ".bakedLiquifiedSS")`;
+
+	string $shadingEngine[] = `listConnections -type shadingEngine $bakedLiquified`;
+
+	string $targetObj = `getAttr ($cameraShape + ".targetObject")`;
+
+	select -r $targetObj	;
+
+	sets -e -forceElement $shadingEngine[0];
+
+	select -cl;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+proc daApplyMask (string $cameraShape)
+{
+	string $maskSS = `getAttr ($cameraShape + ".maskProjSS")`;
+	print( $maskSS + "\n");
+
+	string $camera[] = `listRelatives -p $cameraShape`;
+	print( $camera[0] + "\n");
+	print( $camera[1] + "\n");
+
+	string $bakedLiquifiedSS = `getAttr ($cameraShape + ".bakedLiquifiedSS")`;
+	print( $bakedLiquifiedSS + "\n");
+	string $bakedFile[] = `listConnections -type file $bakedLiquifiedSS`;
+	print( $bakedFile[0] + "\n");
+
+	string $targetObj = `getAttr  ($cameraShape + ".targetObject")`;
+	print( $targetObj + "\n");
+
+	string $fresnelNode[];
+	string $shaderSG[];
+	
+	if ($maskSS == "")
+	{
+		string $surfaceShader = `shadingNode -asShader surfaceShader -n ($camera[0] + "_mask_SS")`;
+		addAttr -ln "linkedCamera"  -dt "string"  $surfaceShader;
+		setAttr -e-keyable false ( $surfaceShader + ".linkedCamera");
+		setAttr -type "string" ( $surfaceShader + ".linkedCamera") $cameraShape;
+		connectAttr -f ($cameraShape + ".message")  ( $surfaceShader + ".linkedCamera");
+
+		setAttr -type "string" ($cameraShape + ".maskProjSS") $surfaceShader;
+
+		string $surfaceShaderSG = `sets -renderable true -noSurfaceShader true -empty -name ($camera[0] + "_mask_SG")`;
+	
+		connectAttr -f ($surfaceShader + ".outColor") ($surfaceShaderSG + ".surfaceShader");
+
+		
+		$fresnelNode[0] = `shadingNode -asUtility freeFresnel -n ($camera[0] + "_fresnel")`;
+		print("new freeFresnel node created\n");
+
+		setAttr ($fresnelNode[0] + ".frontColor") -type double3 1 1 1 ;
+
+
+		connectAttr -f ($fresnelNode[0] + ".outColor") ($surfaceShader + ".outColor");
+		connectAttr -f ($camera[0] + ".worldMatrix[0]") ($fresnelNode[0] + ".inMatrix");
+		connectAttr -f ($bakedFile[0] + ".outColor") ($fresnelNode[0] + ".frontColor");
+
+		$maskSS = $surfaceShader;
+		print("LINE 2441\n");
+
+		string $port = `floatSlider2 -edit -cc1 ("setAttr " + $fresnelNode[0] + ".front") -cc2 ("setAttr " + $fresnelNode[0] + ".side") ($camera[0] + "rampSlider")`;
+		print( $port + "\n");
+
+		$shaderSG[0] = $surfaceShaderSG;
+	}
+	else
+	{
+
+	$shaderSG = `listConnections -type shadingEngine $maskSS`;
+	print( $shaderSG[0] + "\n");// -changeCommand2 String
+	string $fresnel[] = `listConnections -type freeFresnel $maskSS`;
+	print( $fresnel[0] + "\n");
+
+	string $port = `floatSlider2 -edit -cc1 ("setAttr " + $fresnel[0] + ".side") -cc2 ("setAttr " + $fresnel[0] + ".front") ($camera[0] + "rampSlider")`;
+	print( $port + "\n");
+	}
+
+	string $return = `sets -edit -forceElement $shaderSG[0] $targetObj`;
+		
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc daConnectRampSlider (string $cameraShape, string $rampSlider)
+{
+	print ("INSIDE daConnectRampSlider\n");
+	string $maskSS = `getAttr ($cameraShape + ".maskProjSS")`;
+	string $fresnel[] = `listConnections -type freeFresnel $maskSS`;
+
+	string $camera[] = `listConnections -p $cameraShape`;
+
+	if ($fresnel[0] == "")
+	{
+		floatSlider2 	-edit 	-cc1 ("setAttr " + $fresnel[0] + ".front") 
+					-cc2 ("setAttr " + $fresnel[0] + ".side") $rampSlider;
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc string daGetCamFresnel (string $cameraShape)
+{
+
+	string $maskSS = `getAttr ($cameraShape + ".maskProjSS")`;
+	if($maskSS != "")
+	{
+		string $fresnel[] = `listConnections -type freeFresnel $maskSS`;
+		return $fresnel[0];
+	}
+
+	return "";
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//will apply the mask to target object
+//$IO determines if it is applied with color or not
+proc displayMaskColor(string $cameraShape, int $IO)
+{
+	string $targetObj = `getAttr ($cameraShape + ".targetObject")`;
+	string $camera[] = `listRelatives -p $cameraShape`;
+
+
+	string $bakedLiquifiedSS = `getAttr ($cameraShape + ".bakedLiquifiedSS")`;
+
+	string $bakedLiquifiedFile[] = `listConnections -type file $bakedLiquifiedSS`;
+
+
+	string $maskProjSS = `getAttr ($cameraShape + ".maskProjSS")`;
+
+	string $shadingEngine[] = `listConnections -type shadingEngine $maskProjSS`;
+
+	string $freeFresnel = daGetCamFresnel($cameraShape);
+
+	string $fresnelFileConnections[] = `listConnections -type file $freeFresnel`;
+	
+	int $size = size($fresnelFileConnections);
+
+	
+
+	if( ($IO == 1)  && ( $size == 0 ) )
+	{
+		//connectAttr -f ($freeFresnel + ".outColor") ($maskProjSS + ".outColor");
+		//connectAttr -f ($camera[0] + ".worldMatrix[0]") ($freeFresnel + ".inMatrix");
+		connectAttr -f ($bakedLiquifiedFile[0] + ".outColor") ($freeFresnel + ".frontColor");
+	}
+	else if (($IO == 0) && ( $size > 0 ))
+	{
+		disconnectAttr ($bakedLiquifiedFile[0] + ".outColor") ($freeFresnel + ".frontColor");
+		setAttr ($freeFresnel + ".frontColor") -type double3 1 1 1 ;
+
+	}
+
+
+	select -r $targetObj	;
+
+	sets -e -forceElement $shadingEngine[0];
+
+	select -cl;
+}
+
+
+
+
+
+		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc string daBakeMask(string $cameraShape, string $textField)
+{
+	string $maskSS = `getAttr ($cameraShape + ".maskProjSS")`;
+	string $fresnel = daGetCamFresnel($cameraShape);
+	string $targetObject = `getAttr ($cameraShape + ".targetObject")`;
+
+	string $camera[] = `listRelatives -p $cameraShape`;
+
+	daLookThroughCamera($camera[0]);
+
+	int $forceOverwrite;//yes or no
+	int $withColor;
+
+	string $fileNode[];
+
+	int $Xres = getBakeResolution("Choose a Resolution");
+	int $Yres = $Xres;
+
+	
+	string $fileName = `textField -q -text $textField`;
+	print ("FileName = " + $fileName + "\n");
+	
+	string $workspace = `workspace -q -rd`;
+	
+	string $imagesPath = $workspace + "sourceimages";
+
+	//string $newFileNodeName = ($camera[0] + "_Baked_Mask_" + $Xres + "_" + $targetObject );
+	string $newFileNodeName = ($fileName + "_" + $Xres + "_" + $targetObject );
+
+	string $bakedImagesPath = ( $workspace + "baked");
+
+	int $IO = daDoesFileExist($newFileNodeName, "baked");
+
+	//list the files in the baked folder that match the new baked image name
+	string $namesInBakedFolder[] = `getFileList -folder ($bakedImagesPath + "/") -filespec ($newFileNodeName + "*")`;	
+
+	print($namesInBakedFolder);
+
+	//number of files that match the name of the new baked image
+	int $sizeOfNamesakes = `size($namesInBakedFolder)`;
+
+
+	if ($IO)
+	{
+		string $result = daConfirmMessage("Warning", "Would you like to overwrite existing baked image?", 2);
+		if($result == "Yes")
+		{
+			$forceOverwrite = 1;
+			print("overwrite = " + $forceOverwrite + "\n");		 
+		}
+		if($result == "No")
+		{
+			$forceOverwrite = 0;
+			print("overwrite = " + $forceOverwrite + "\n");	
+			$newFileNodeName += $sizeOfNamesakes; 
+		}
+	}
+
+	if (`connectionInfo -isDestination ($fresnel + ".frontColor")`) 
+	{
+		string $response = daConfirmMessage("", "Would you like to bake the liquified color with mask?", 2);
+
+		if ($response == "No")
+		{
+			displayMaskColor( $cameraShape, 0);
+		}
+	}
+	
+	//bake the shader
+	string $bakedNodes[] = 
+	`convertSolidTx 	-antiAlias 0 -bm 3 -fts 0 
+				-sp 0 -sh 0 -alpha 0 
+				-force $forceOverwrite
+				-doubleSided false -componentRange 0 
+				-resolutionX $Xres -resolutionY $Yres 
+				-fileFormat "tif"  
+				-uvRange 0 1 0 1 
+				-fileImageName ($bakedImagesPath + "/" + $newFileNodeName + ".tif")
+				-name ($newFileNodeName + "_file")
+				($maskSS + ".outColor") $targetObject`;
+
+	print("These are the bakedNodes\n");
+	print($bakedNodes);
+	
+	string $bakedLiquifiedSourcePath = `getAttr ($bakedNodes[0] + ".fileTextureName")`;
+
+	//get the name of the baked nodes if they exist
+	setAttr -type "string" ($cameraShape + ".bakedMaskImage") $bakedLiquifiedSourcePath;
+	connectAttr -f ($cameraShape + ".bakedMaskImage") ($bakedNodes[0] + ".fileTextureName");
+	
+	string $lambertShaderSG;
+	string $bakedMaskProjSS = `getAttr ($cameraShape + ".bakedMaskProjSS")`;
+
+	if ($bakedMaskProjSS == "")
+	{
+		string $lambertShader = `shadingNode -asShader lambert -n ($camera[0] + "_baked_mask_lambert")`;
+		addAttr -ln "linkedCamera"  -dt "string"  $lambertShader;
+		setAttr -e-keyable false ( $lambertShader + ".linkedCamera");
+		setAttr -type "string" ( $lambertShader + ".linkedCamera") $cameraShape;
+		connectAttr -f ($cameraShape + ".message")  ( $lambertShader + ".linkedCamera");
+
+		setAttr -type "string" ($cameraShape + ".bakedMaskProjSS") $lambertShader;
+
+		$lambertShaderSG = `sets -renderable true -noSurfaceShader true -empty -name ($camera[0] + "_baked_mask_SG")`;
+	
+		connectAttr -f ($lambertShader + ".outColor") ($lambertShaderSG + ".surfaceShader");
+
+		//connectAttr -force camera1_Baked_Mask_512_HighPriest_file1.outColor camera1_baked_mask1.color;
+		connectAttr -f ($bakedNodes[0] + ".outColor") ($lambertShader + ".color");
+	}
+	else
+	{
+		string $connections[]  = `listConnections -type shadingEngine $bakedMaskProjSS`;
+		$lambertShaderSG = $connections[0];
+	}
+
+	select -r $targetObject;
+
+	sets -e -forceElement $lambertShaderSG;
+	
+	return $bakedLiquifiedSourcePath;
+}
+
+
+
+
+
+
+
+
+
+
+
+proc string daExportToPhotoshop( string $textFieldName, string $targetObject ) 
+{
+	//string $targetObject = "KURTZ_2";
+	//string $nameOfFile = "KURTZ_3_export";
+	
+	global string $daTargetObject;
+
+	string $nameOfFile = `textField -q -tx $textFieldName`;
+	
+	print ($nameOfFile);
+	
+
+	int $forceOverwrite = 1;//yes or no
+	
+	string $workspace = `workspace -q -rd`;
+	
+	string $sourceImagesPath = $workspace + "sourceimages";
+
+	string $photoshopFileName = $sourceImagesPath + "/" + $nameOfFile + ".psd";
+
+	string $bakedImagesPath = ( $workspace + "baked");
+
+	int $IO = daDoesFileExist($nameOfFile, "sourceimages");
+
+	//list the files in the source images folder that match the name of export
+	string $namesInSourceImagesFolder[] = `getFileList -folder ($sourceImagesPath + "/") -filespec ($nameOfFile + "*")`;
+
+	//number of files that match the name of the new baked image
+	int $sizeOfNamesakes = `size($namesInSourceImagesFolder)`;
+
+	print ("does file exist = " + $IO + "\n");
+
+	if ($sizeOfNamesakes)
+	{
+		string $result = daConfirmMessage("Warning", "Would you like to overwrite existing PSD file?", 2);
+		if($result == "Yes")
+		{
+			$forceOverwrite = 1;
+			print("overwrite = " + $forceOverwrite + "\n");		 
+		}
+		if($result == "No")
+		{
+			$forceOverwrite = 0;
+			print("overwrite = " + $forceOverwrite + "\n");	
+			$nameOfFile += $sizeOfNamesakes;	 
+		}
+	}
+
+
+	//this section gets all the valid cameras and files
+	//that need to be added to the psd
+	string $cameraShapes[] = daGetValidCameras();
+	string $camera;
+
+	string $fileNamesToAdd[];  //clear($fileNamesToAdd);
+	string $cameraNamesForLayers[]; //clear($cameraNamesForLayers);
+
+	string $current;
+
+	string $bakedLiquifiedSource;
+	string $bakedMaskImage;
+
+	int $i = 0;
+
+	for($current in $cameraShapes)
+	{
+		$bakedLiquifiedSource = `getAttr ($current + ".bakedLiquifiedSource")`;
+		if($bakedLiquifiedSource != "")
+		{
+			//$camera = `listRelatives -p $current`;
+			//$command += "-ifn " + $camera + " Normal " + $bakedLiquifiedSource + " ";
+			$fileNamesToAdd[$i] = $bakedLiquifiedSource;
+			string $temp[] = `listRelatives -p $current`;
+			$cameraNamesForLayers[$i] = ($temp[0] + " Color");
+			$i++;
+			print("Liq " + $i + "\n");
+		}
+
+		$bakedMaskImage = `getAttr ($current + ".bakedMaskImage")`;
+
+		if($bakedMaskImage != "")
+		{
+			//$camera = `listRelatives -p $current`;
+			//$command += "-ifn " + $camera + " Normal " + $bakedLiquifiedSource + " ";
+			$fileNamesToAdd[$i] = $bakedMaskImage;
+			string $temp[] = `listRelatives -p $current`;
+			$cameraNamesForLayers[$i] = ($temp[0] + " Mask");
+			$i++;
+			print("Mask " + $i + "\n");
+		}
+	}
+
+	print($fileNamesToAdd);
+	print($cameraNamesForLayers);
+
+	//clear($fileNamesToAdd);
+	//clear($cameraNamesForLayers);
+
+	int $Xres = getBakeResolution("Choose a Resolution");
+	int $Yres = $Xres;
+
+
+	string $uvSnapshot = ($workspace + "images/" + $daTargetObject + "_UVsnapshot.tif");
+
+
+	$IO = daDoesFileExist($uvSnapshot, "images");//print($uvSnapshot);
+
+	print("THE UV FILE = " + $uvSnapshot + "\n");
+	
+
+	string $psdCommand = "createLayeredPsdFile  -xr " + $Xres + " -yr " +  $Yres + " -ifn \"uv snapshot\" \"Normal\" \"" + $uvSnapshot + "\" ";
+					 
+
+	int $size = size($fileNamesToAdd);
+	print("SIZE = " + $size + "\n");
+
+	//will iterate through every file to add to psd file
+	int $e = 0;
+
+	for($e; $e < $size; $e++)
+	{
+		string $layerName = $cameraNamesForLayers[$e];
+		
+		string $addendumFlag = " -ifn \"" + 	$layerName + "\" \"Normal\" \"" +  $fileNamesToAdd[$e] + "\"";
+		
+		$psdCommand += $addendumFlag;
+
+		//print("added " + $fileNamesToAdd[$e] + " to PSD file\n");	
+	}
+
+	$psdCommand += (" -psdFileName \"" + $photoshopFileName + " \"");
+
+	//print($psdCommand);
+	eval $psdCommand;
+	
+	return $psdCommand;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//these are the gutted procs from daPanAndScan script
+
+proc daResetCameraImagePlane()
+{
+	string $pane = `getPanel -wf`;
+
+	//figure out the camera in the current view in order to use its values in the window
+	string $whichCam = `modelPanel -q -camera $pane`;
+	$whichCamShape = `ls -dag -shapes -ap $whichCam`;
+
+	setAttr ($whichCamShape[0] + ".verticalFilmOffset") 0;
+	setAttr ($whichCamShape[0] + ".horizontalFilmOffset") 0;
+	setAttr ($whichCamShape[0] + ".overscan") 1.3;
+
+	camera -e -displayFilmGate off -displayResolution on -overscan 1.3  $whichCam;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//proc panAndScanTool()
+//{
+//	string $context = `panAndScanContext`;
+//
+//	setToolTo $context;
+//}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

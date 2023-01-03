@@ -1,0 +1,601 @@
+//copyright 2007 Daniel Arzabe
+//
+//For suggestions: darzabe@gmail.com
+//
+//window -q -ex "LiquifyWindow";
+//showWindow "LiquifyWindow";
+
+proc daMayaLiquifyUI()
+{
+
+
+global string $daTargetObject;
+
+string $cameraShapes[];
+$cameraShapes = daGetValidCameras();
+
+
+
+string $window = `window  	-mxb false 
+				-menuBar true -w 100 
+				-t "Maya Liquify" -s true
+				LiquifyWindow`;
+
+menu -label "Refresh" -tearOff false;
+    menuItem -label "Refresh Panels" -c "refreshLiquifyUI();" ;
+    menuItem -label "Clear All";
+    menuItem -label "Delete Unused Nodes" -c ("hyperShadePanelMenuCommand(\"hyperShadePanel1\", \"deleteUnusedNodes\")") ;
+
+
+menu -label "Help" -helpMenu true;
+    menuItem -label "Help";
+    menuItem -label "About Application...";
+
+
+
+
+
+
+
+gridLayout -cr false -nrc 1 9 -cwh 35 35 "buttonGridLayout";
+	symbolButton -i "daPanAndScan_icon.xpm" -ann "daPanAndScanTool" -c "daSetPanAndScanTool()";
+	symbolButton -i "daPanAndScanOptions_icon.xpm" -ann "daPanAndScanTool Options" -c "daPanAndScanToolOptions()";
+	text -label "";
+	symbolButton -i "load_object_icon.xpm" -ann "Load global target object" -c "daSetGlobalTargetObject()";		
+	symbolButton -i "prepCamera_icon.xpm" -ann "Prep camera and render global settings" -c ("daPrepCamera(\"" + $cameraShapes[0] + "\")");
+		
+	symbolButton -i "createPlane_icon.xpm" 	-ann "Create plane" 
+							-c ("daCreateLiquifyPlane(\"" + $cameraShapes[0] + "\")") 
+							"createPlaneButton";
+	symbolButton -i "liquifyPlane_icon.xpm" -ann "Liquify plane"  -c "daLiquifySurface()" "liquifyButton";
+	text -label "";
+	text -label "";
+	text -label "";		
+	
+	
+setParent..;
+
+
+
+
+
+
+
+
+
+
+gridLayout -cr false -nrc 1 1 -cwh 314 600 "cameraFramesGridLayout";
+	string $myTabs = `tabLayout  -h 400 -scrollable true`;
+			string $liquifyColumn = `columnLayout -w 310 `;
+
+
+
+
+
+
+			if(`size($cameraShapes)` > 0)
+			{	
+				for ($currentCamShape in $cameraShapes)
+				{
+					//get camera attributes
+					vector $panelColor = `getAttr ($currentCamShape + ".panelColor")`;
+					string $parent[] = `listRelatives -parent $currentCamShape`;
+					string $liquifyPlane = `getAttr ($currentCamShape + ".liquifyPlane")`;
+					string $targetObject = `getAttr ($currentCamShape + ".targetObject")`;
+					//print ("________________________________________ \n" + $currentCamShape + "\n Target object = " + $targetObject + "\n");
+
+					float $resX = `getAttr ($currentCamShape + ".imageSizeX")`;
+					float $resY = `getAttr ($currentCamShape + ".imageSizeY")`;
+
+
+					frameLayout 	-mh 5 -mw 5 -collapsable true -w 290 -h 205
+							-labelVisible true -la "bottom" ;
+							//-bgc ($panelColor.x) ($panelColor.y) ($panelColor.z)  
+							//-borderStyle "out" $parent[0];
+
+						columnLayout  -w 300 -adjustableColumn true ("frameColumnLayout" + $currentCamShape);
+
+
+
+							rowColumnLayout 	-bgc ($panelColor.x) ($panelColor.y) ($panelColor.z)
+										-numberOfColumns 5 
+										-columnWidth 1 172   
+										-columnWidth 2 26 
+										-columnWidth 3 26 
+										-columnWidth 4 26 
+										-columnWidth 5 26 -h 30 ("cameraViewRCLayout" + $currentCamShape);
+
+					
+								text  	-bgc ($panelColor.x) ($panelColor.y) ($panelColor.z) 
+									-font "boldLabelFont"  -label "Image Source" -align "left";
+								symbolButton 	-w 26 -h 26 -i "camera_icon.xpm" 
+										-c ("daLookThroughCamera(\"" +  $parent[0] + "\");" ) ;
+
+
+
+								int $IO = `getAttr ($liquifyPlane + ".visibility")`;
+								string $toggleLiqPlane_SymbolButtonName = `symbolButton -w 26 -h 26 
+																-ann "Toggle Liquify Plane Visibility"
+																-i "toggle_LiquifyPlane.xpm" 
+																($currentCamShape + "_visible_button_liquifyPlane")`;
+								symbolButton -e -i "toggle_LiquifyPlane.xpm"  -c ("daVisibilityToggle(\"" + $toggleLiqPlane_SymbolButtonName + "\",\"" + $currentCamShape + "\")") $toggleLiqPlane_SymbolButtonName;
+								
+
+								string $toggleImagePlane_SymbolButtonName = `symbolButton -w 26 -h 26 
+																-ann "Toggle Image Plane Visibility"
+																-i "toggle_imagePlaneVisibility.xpm" 
+																($currentCamShape + "_visible_button_imagePlane")`;
+								symbolButton -e  -c ("imagePlaneVisibilityToggle(\"" + $currentCamShape + "\")") $toggleImagePlane_SymbolButtonName;
+
+								string $toggleTargetObject_SymbolButtonName = `symbolButton -w 26 -h 26 
+																-ann "Toggle Target Object Visibility"
+																-i "toggle_TargetObjectVisibility.xpm" 
+																($currentCamShape + "_target_visible_button_targetObject")`;
+								symbolButton -e  -c ("daVisibilityToggle(\"" + $toggleTargetObject_SymbolButtonName + "\",\"" + $currentCamShape + "\")") $toggleTargetObject_SymbolButtonName;
+
+
+		
+
+							setParent..;
+
+
+
+
+
+
+
+							rowLayout -numberOfColumns 2 -columnWidth2 250 30 ("fileRowLayout" + $currentCamShape);
+								string $sourceImageTextField = `textField -bgc 1 1 1 -h 22 -w 250 ( "sourceImageTextField_" + $currentCamShape)`;
+								connectControl ("sourceImageTextField_" + $currentCamShape) ($currentCamShape + ".sourceImage");
+								symbolButton 	-bgc ($panelColor.x) ($panelColor.y) ($panelColor.z) 
+										-w 26 -h 26 -i "folder_icon.xpm" 
+										-c ("daReplaceSourceImage(\"" + $currentCamShape + "\",\"sourceImage\")") ($parent[0] + "loadSourceButton"); 
+							setParent ..;
+					
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+							
+
+
+
+
+
+
+
+
+
+
+								
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////
+							//the image info text
+							rowColumnLayout 	-bgc 1 1 1 -numberOfColumns 2 
+										-columnWidth 1 100
+										-columnWidth 2 175  ("planeTransparencyRCLayout" + $currentCamShape);
+
+								text 	-bgc ($panelColor.x + .2) ($panelColor.y + .2) ($panelColor.z + .2)
+									-label " Transparency " -font "boldLabelFont";
+								string $transparencySlider = `floatSlider 	-min 0.0 -max 1.0 
+											-bgc ($panelColor.x + .2) ($panelColor.y + .2) ($panelColor.z + .2)
+											-value .2  ("transparencySlider_" + $currentCamShape)`;
+								floatSlider -e
+								-cc (  "daSetLiquifyPlaneTransparency(\"" + $currentCamShape + "\",\"" + $transparencySlider + "\")"  )
+								$transparencySlider;
+
+					
+							setParent..;
+
+
+
+
+							
+
+
+
+
+
+
+											
+							
+							text -bgc ($panelColor.x) ($panelColor.y) ($panelColor.z) -label "";
+				
+							text  	-bgc ($panelColor.x) ($panelColor.y) ($panelColor.z) 
+								-font "boldLabelFont" -label "Liquified Image Name" -align "left";
+							string $liquifiedImageTextFieldName = `textField -bgc ($panelColor.x) ($panelColor.y) ($panelColor.z) 
+														  -h 22 -w 276 -insertText ($parent[0] + "_liquified") ("liquifiedImageTextFieldName_" + $currentCamShape)`;
+
+
+							//separator  -h 20 -bgc ($panelColor.x) ($panelColor.y) ($panelColor.z);
+
+
+
+
+
+
+
+
+				////////////////////////////////////////////////////////////////////////
+							rowLayout	//-bgc ($panelColor.x) ($panelColor.y) ($panelColor.z)   
+									-numberOfColumns 2 -columnWidth2 5 260 ("checkBoxRCLayout" + $currentCamShape);
+								text //-bgc ($panelColor.x) ($panelColor.y) ($panelColor.z) 
+									-label " ";
+								string $includeLiquifiedCB = `checkBox 	-h 25 -label "Include Liquified In Composite" 
+														//-bgc ($panelColor.x) ($panelColor.y) ($panelColor.z)
+														-align "left" ("includeLiquifiedCB_" + $currentCamShape)`;
+								connectControl $includeLiquifiedCB ($currentCamShape + ".includeLiquified");	
+							setParent..;
+					
+							rowColumnLayout -numberOfColumns 2 -columnWidth 1 138 -columnWidth 2 138 ("liqClearRCLayout" + $currentCamShape);
+								button -h 22 -align "center"  -label "Liquify Source Image" -w 138 
+									-bgc ($panelColor.x + .2) ($panelColor.y + .2) ($panelColor.z + .2)
+									-c ("daLiquifySourceImage(\"" + $currentCamShape + "\",\"" + $liquifiedImageTextFieldName + "\")")     ;
+								button -h 22 -align "center"  -label "Clear" -w 138 
+									-bgc ($panelColor.x + .2) ($panelColor.y + .2) ($panelColor.z + .2)
+									-c ("daClearLiquifyPlane(\"" + $currentCamShape + "\")");
+								text -label "" ;
+								text -label "";
+							setParent..;	
+						setParent ..;
+					setParent..;
+				}
+				
+			}
+			else
+			{
+				if ($daTargetObject == "")
+				{
+					text -align "center" -label "                                   Set your project." -h 60 "targetObjectTextDisplay";
+					//text -label "\n";
+					text -align "center" -label "                            Select target object and load." -h 18 "setProjectTextDisplay";
+					string $confirm = daConfirmMessage("Initializing Maya Liquify", "Please load your target object.", 1 );
+			
+					if($confirm == "Cancel")
+					{	
+						deleteUI LiquifyWindow;
+					}
+				}
+				else
+				{
+					text 	-align "center" -h 60
+						-label ("                       \"" + $daTargetObject + "\" is your current target object.");
+				} 
+				
+					
+			}
+			setParent..;
+
+		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////                             ///////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////  B       A       K       E  ///////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////                             ///////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+		string $bake = `columnLayout`;
+			string $masksColumn = `columnLayout -w 310 `;
+
+
+			if(`size($cameraShapes)` > 0)
+			{	
+				for ($currentCamShape in $cameraShapes)
+				{
+					vector $panelColor = `getAttr ($currentCamShape + ".panelColor")`;
+					string $parent[] = `listRelatives -parent $currentCamShape`;
+					string $targetObject = `getAttr ($currentCamShape + ".targetObject")`;
+
+					frameLayout 	-mh 5 -mw 5 -collapsable true -w 300 -h 300
+							-labelVisible true -la "bottom" 
+							-bgc ($panelColor.x) ($panelColor.y) ($panelColor.z)  ;
+							//-borderStyle "out" $parent[0];
+
+						columnLayout  -w 291 -adjustableColumn true 
+								-bgc ($panelColor.x) ($panelColor.y) ($panelColor.z) ("frameColumnLayout" + $currentCamShape);
+
+							rowColumnLayout -nc 3 -cw 1 167 -cw 2 83 -cw 3 26;
+							
+								rowColumnLayout -nc 3 -cw 1 145 -cw 2 22 -cw 3 109;
+					
+									button -label "Apply Liquified" -w 100 
+										-bgc ($panelColor.x + .2) ($panelColor.y + .2) ($panelColor.z + .2)
+										-c (    "daApplyLiquified(\"" + $currentCamShape + "\",\"" + $targetObject + "\");"    );
+
+									text -label "" -bgc ($panelColor.x ) ($panelColor.y ) ($panelColor.z );
+
+									text -label "" -bgc ($panelColor.x ) ($panelColor.y ) ($panelColor.z);
+
+									button	-label "Bake Liquified"
+										-bgc ($panelColor.x + .2) ($panelColor.y + .2) ($panelColor.z + .2)
+										-c ("daBakeLiquified(\"" + $currentCamShape+ "\")");
+									symbolButton -i "1_visible_icon.xpm" -c ("displayBakedLiquified(\"" + $currentCamShape+ "\")");
+									text -label "" -bgc ($panelColor.x ) ($panelColor.y ) ($panelColor.z );
+								setParent..;
+	
+
+
+								text -label "" -bgc ($panelColor.x ) ($panelColor.y ) ($panelColor.z);
+								
+								
+								
+								
+								rowLayout -h 26 -bgc ($panelColor.x ) ($panelColor.y ) ($panelColor.z);
+									symbolButton -h 26 -w 26 -i "camera_icon.xpm"
+											-c ("daLookThroughCamera(\"" +  $parent[0] + "\");" ) ;
+								setParent..;
+
+							setParent..;
+			
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+							text -label " Baked Liquified Source" -al "left";
+							string $bakedLiqSourceTextfield = `textField -h 22 ($currentCamShape + "_Baked_Liq_Source_Textfield")`;
+							connectControl ($currentCamShape + "_Baked_Liq_Source_Textfield") ($currentCamShape + ".bakedLiquifiedSource");
+
+							
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+							text -label "" -bgc ($panelColor.x ) ($panelColor.y ) ($panelColor.z);
+
+							//separator -h 10 -bgc ($panelColor.x ) ($panelColor.y ) ($panelColor.z );
+
+							
+							rowColumnLayout -nc 2 -cw 1 230 -cw 2 60;
+								
+								columnLayout -w 220;
+							
+									
+ 
+									rowColumnLayout -nc 4 -cw 1 145 -cw 2 22 -cw 3 22 -cw 4 87;
+					
+										button -label "Apply Mask" -w 145
+											-bgc ($panelColor.x + .2) ($panelColor.y + .2) ($panelColor.z + .2)
+											-c ("daApplyMask (\"" +  $currentCamShape + "\");" ) ;
+
+										symbolButton -i "color_icon.xpm" 	-c ("displayMaskColor (\"" +  $currentCamShape + "\", 1);" ) ;
+										symbolButton -i "bw_icon.xpm" 	-c ("displayMaskColor (\"" +  $currentCamShape + "\", 0);" ) ;
+										text -label "";
+
+///>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>		
+										text -label " " -h 10;
+										text -label " " -h 10;
+										text -label " " -h 10;
+										text -label " " -h 10;
+
+
+										text -label " Baked Mask Name";// -al "left";
+										text -label " ";
+										text -label " ";
+										text -label " "; 
+
+
+										string $bakedMaskSourceTextFieldName = `textField -h 22 -insertText ($parent[0] + "_Baked_Mask") ($currentCamShape + "_Baked_Mask_Name_Textfield")`;
+										print($bakedMaskSourceTextFieldName);
+										text -label " ";
+										text -label " ";
+										text -label " ";
+
+						
+										button -label "Bake Mask" -w 145
+											-bgc ($panelColor.x + .2) ($panelColor.y + .2) ($panelColor.z + .2)
+											//-c ("print(\"" + $bakedMaskSourceTextFieldName + "\")")     ;
+											-c ("daBakeMask(\"" + $currentCamShape + "\",\"" + $bakedMaskSourceTextFieldName + "\")");
+										symbolButton -i "1_visible_icon.xpm" ;
+										text -label "";
+										text -label "";
+
+
+ 							
+									setParent..;
+
+									//text -label "" -h 10;
+
+									text -label " Baked Mask Source" -al "left";
+			
+									//textField -w 220 -h 22;
+									string $bakedMaskSourceTextfield = `textField -h 22 -w 220 ($currentCamShape + "_Baked_Mask_Source_Textfield")`;
+									connectControl ($currentCamShape + "_Baked_Mask_Source_Textfield") ($currentCamShape + ".bakedMaskImage");
+									
+
+									rowColumnLayout -w 220 -nc 2 -cw 1 196 -cw 2 22;
+
+										text -label "" ;
+
+										symbolButton -w 22 -h 22 -i "3dPaint_icon.xpm";
+
+									setParent..;
+								setParent..;
+						
+								columnLayout -w 60;
+									string $whiteSlider = `floatField -en true -v .8 -minValue .01 -maxValue 1 -step .001 -w 45
+														($parent[0] + "whiteSlider")`;//-vis false
+									print("White slider = " + $whiteSlider + "\n");
+
+									string $rampSlider = `floatSlider2 -en true -v1 .7 -v2 .8 -w 44 -h 110 -min 0 -max 1
+														-bgc ($panelColor.x + .2) ($panelColor.y + .2) ($panelColor.z + .2) 
+														($parent[0] + "rampSlider")`;
+
+									print("Ramp slider = " + $rampSlider + "\n");
+
+									string $blackSlider = `floatField -en true -v .7 -minValue 0 -maxValue .99 -step .001 -w 45
+														($parent[0] + "blackSlider")`;
+
+									print("Black slider = " + $blackSlider + "\n");
+
+									floatSlider2 -edit -positionControl1 $blackSlider -positionControl2  $whiteSlider $rampSlider;
+
+									floatSlider2 -edit -polarity 0 -max 1 $rampSlider;
+
+									string $fresnel = daGetCamFresnel ($currentCamShape);
+									if($fresnel != "") 
+									{	
+										string $maskSS = `getAttr ($currentCamShape + ".maskProjSS")`;
+										floatSlider2 -edit -en true  -cc1 ("setAttr " + $fresnel + ".front")
+										                            -cc2 ("setAttr " + $fresnel + ".side")
+										                             
+														              $rampSlider;
+									}
+									
+								setParent..;
+
+							setParent..;
+								
+						setParent..;
+					setParent..;
+				}
+			}
+			setParent..;
+		setParent..;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		/*string $composite = `columnLayout`;
+			text -label "Photoshopesque layer interface here";
+		setParent..;*/
+
+
+		
+
+		string $export = `columnLayout -columnOffset "both" 20`;
+			text -label "";
+			columnLayout;
+				text -label "Name of File";
+				string $exportTextField = `textField -w 260 -it ($daTargetObject + "_export")`;
+			
+			setParent..;
+
+
+			text -label "" -h 27;
+			rowColumnLayout -nc 7 -cw 1 27 -cw 2 60 -cw 3 14 -cw 4 60 -cw 5 14 -cw 6 60 -cw 1 27;
+				text -label "";
+				symbolButton -w 60 -h 60 
+						-c ("daExportToPhotoshop(\"" + $exportTextField + "\",\"" + $daTargetObject + "\")")
+						-i "photoshopLogo.bmp" ;
+				text -label "";
+				symbolButton -w 60 -h 60 -i "bodypaint3dLogo.bmp" ;
+				text -label "";
+				symbolButton -w 60 -h 60 -i "zbrushLogo.bmp" ;
+				
+			setParent..;
+			
+			
+
+		setParent..;
+
+
+
+	tabLayout -e 	-tabLabel $liquifyColumn "Liquify" 
+			-tabLabel $bake "Bake" 
+			//-tabLabel $composite "Composite" 
+			-tabLabel $export "Export" $myTabs;
+	setParent..;
+//print ("=======================================================================================\n");
+showWindow $window;
+
+}
+
+
+
+

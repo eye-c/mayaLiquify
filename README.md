@@ -1,5 +1,5 @@
 # mayaLiquify - A Maya Texturing Plugin
-Before there was Mari (a long long time ago), paint projection as a texturing tool was non-existent...so I made one.
+Before there was Mari (a long long time ago), 3d paint projection as a texturing tool was non-existent...so I made one.
 
 This project is comically obsolete. If it was a phone, it would come with a nasal operator wearing horn rimmed glasses. If it was a car horn, it would make an "AHOOOOGAH!!!" sound. If it was a plane, it would have Orville Wright's terrified butt print on it.
 
